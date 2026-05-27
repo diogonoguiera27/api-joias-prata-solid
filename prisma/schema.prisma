@@ -1,0 +1,270 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TipoMovimentacaoEstoque {
+  ENTRADA
+  SAIDA
+  AJUSTE
+  VENDA
+  DEVOLUCAO_CANCELAMENTO
+}
+
+enum StatusCarrinho {
+  ATIVO
+  CONVERTIDO_EM_PEDIDO
+  ABANDONADO
+}
+
+enum StatusPedido {
+  PENDENTE_PAGAMENTO
+  PAGO
+  EM_PREPARACAO
+  ENVIADO
+  ENTREGUE
+  CANCELADO
+  REEMBOLSADO
+}
+
+enum MetodoPagamento {
+  PIX
+  CARTAO_CREDITO
+  CARTAO_DEBITO
+  BOLETO
+}
+
+enum StatusPagamento {
+  PENDENTE
+  APROVADO
+  RECUSADO
+  CANCELADO
+  REEMBOLSADO
+}
+
+enum TipoDescontoCupom {
+  PERCENTUAL
+  VALOR_FIXO
+  FRETE_GRATIS
+}
+
+model Categoria {
+  id           String   @id @default(uuid())
+  nome         String
+  slug         String   @unique
+  descricao    String?
+  ativo        Boolean  @default(true)
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  produtos Produto[]
+
+  @@map("categorias")
+}
+
+model Produto {
+  id                 String   @id @default(uuid())
+  nome               String
+  slug               String   @unique
+  descricao          String?
+  precoBase          Decimal  @db.Decimal(10, 2)
+  percentualDesconto Decimal  @default(0) @db.Decimal(5, 2)
+  precoFinal         Decimal  @db.Decimal(10, 2)
+  material           String?
+  colecao            String?
+  categoriaId        String
+  ativo              Boolean  @default(true)
+  criadoEm           DateTime @default(now())
+  atualizadoEm       DateTime @updatedAt
+
+  categoria Categoria @relation(fields: [categoriaId], references: [id])
+
+  variacoes     VariacaoProduto[]
+  imagens       ImagemProduto[]
+  itensCarrinho ItemCarrinho[]
+  itensPedido   ItemPedido[]
+
+  @@index([categoriaId])
+  @@map("produtos")
+}
+
+model VariacaoProduto {
+  id             String   @id @default(uuid())
+  produtoId      String
+  nome           String
+  sku            String   @unique
+  tamanho        String?
+  cor            String?
+  precoAdicional Decimal  @default(0) @db.Decimal(10, 2)
+  estoque        Int      @default(0)
+  ativo          Boolean  @default(true)
+  criadoEm       DateTime @default(now())
+  atualizadoEm   DateTime @updatedAt
+
+  produto Produto @relation(fields: [produtoId], references: [id])
+
+  movimentacoesEstoque MovimentacaoEstoque[]
+  itensCarrinho        ItemCarrinho[]
+  itensPedido          ItemPedido[]
+
+  @@index([produtoId])
+  @@map("variacoes_produto")
+}
+
+model ImagemProduto {
+  id        String   @id @default(uuid())
+  produtoId String
+  url       String
+  textoAlt  String?
+  principal Boolean  @default(false)
+  criadoEm  DateTime @default(now())
+
+  produto Produto @relation(fields: [produtoId], references: [id])
+
+  @@index([produtoId])
+  @@map("imagens_produto")
+}
+
+model MovimentacaoEstoque {
+  id         String                  @id @default(uuid())
+  variacaoId String
+  tipo       TipoMovimentacaoEstoque
+  quantidade Int
+  motivo     String?
+  criadoEm   DateTime                @default(now())
+
+  variacao VariacaoProduto @relation(fields: [variacaoId], references: [id])
+
+  @@index([variacaoId])
+  @@map("movimentacoes_estoque")
+}
+
+model Cliente {
+  id           String   @id @default(uuid())
+  nome         String
+  email        String   @unique
+  telefone     String?
+  documento    String?
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  carrinhos Carrinho[]
+  pedidos   Pedido[]
+
+  @@map("clientes")
+}
+
+model Carrinho {
+  id           String         @id @default(uuid())
+  clienteId    String?
+  status       StatusCarrinho @default(ATIVO)
+  criadoEm     DateTime       @default(now())
+  atualizadoEm DateTime       @updatedAt
+
+  cliente Cliente?       @relation(fields: [clienteId], references: [id])
+  itens   ItemCarrinho[]
+
+  @@index([clienteId])
+  @@map("carrinhos")
+}
+
+model ItemCarrinho {
+  id            String   @id @default(uuid())
+  carrinhoId    String
+  produtoId     String
+  variacaoId    String
+  quantidade    Int
+  precoUnitario Decimal  @db.Decimal(10, 2)
+  subtotal      Decimal  @db.Decimal(10, 2)
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  carrinho Carrinho        @relation(fields: [carrinhoId], references: [id])
+  produto  Produto         @relation(fields: [produtoId], references: [id])
+  variacao VariacaoProduto @relation(fields: [variacaoId], references: [id])
+
+  @@index([carrinhoId])
+  @@index([produtoId])
+  @@index([variacaoId])
+  @@map("itens_carrinho")
+}
+
+model Pedido {
+  id            String       @id @default(uuid())
+  clienteId     String?
+  subtotal      Decimal      @db.Decimal(10, 2)
+  totalDesconto Decimal      @default(0) @db.Decimal(10, 2)
+  totalFrete    Decimal      @default(0) @db.Decimal(10, 2)
+  total         Decimal      @db.Decimal(10, 2)
+  status        StatusPedido @default(PENDENTE_PAGAMENTO)
+  criadoEm      DateTime     @default(now())
+  atualizadoEm  DateTime     @updatedAt
+
+  cliente   Cliente?     @relation(fields: [clienteId], references: [id])
+  itens     ItemPedido[]
+  pagamento Pagamento?
+
+  @@index([clienteId])
+  @@map("pedidos")
+}
+
+model ItemPedido {
+  id            String  @id @default(uuid())
+  pedidoId      String
+  produtoId     String
+  variacaoId    String
+  nomeProduto   String
+  quantidade    Int
+  precoUnitario Decimal @db.Decimal(10, 2)
+  subtotal      Decimal @db.Decimal(10, 2)
+
+  pedido   Pedido          @relation(fields: [pedidoId], references: [id])
+  produto  Produto         @relation(fields: [produtoId], references: [id])
+  variacao VariacaoProduto @relation(fields: [variacaoId], references: [id])
+
+  @@index([pedidoId])
+  @@index([produtoId])
+  @@index([variacaoId])
+  @@map("itens_pedido")
+}
+
+model Pagamento {
+  id           String          @id @default(uuid())
+  pedidoId     String          @unique
+  metodo       MetodoPagamento
+  status       StatusPagamento @default(PENDENTE)
+  valor        Decimal         @db.Decimal(10, 2)
+  pagoEm       DateTime?
+  criadoEm     DateTime        @default(now())
+  atualizadoEm DateTime        @updatedAt
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id])
+
+  @@map("pagamentos")
+}
+
+model Cupom {
+  id                String            @id @default(uuid())
+  codigo            String            @unique
+  tipoDesconto      TipoDescontoCupom
+  valorDesconto     Decimal           @db.Decimal(10, 2)
+  valorMinimoPedido Decimal?          @db.Decimal(10, 2)
+  limiteUso         Int?
+  quantidadeUsada   Int               @default(0)
+  iniciaEm          DateTime?
+  expiraEm          DateTime?
+  ativo             Boolean           @default(true)
+  criadoEm          DateTime          @default(now())
+  atualizadoEm      DateTime          @updatedAt
+
+  @@map("cupons")
+}
