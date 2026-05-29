@@ -8,9 +8,33 @@ import {
   RemoverProdutoDTO,
 } from "../models/produto.model";
 import { produtosRepository } from "../repositories/produtos.repository";
+import { IProdutosRepository } from "../repositories/interfaces/produtos-repository.interface";
 
-class ProdutosService {
-  private gerarSlug(texto: string) {
+export interface DadosProdutoValidados {
+  nome: string;
+  slug: string;
+  descricao?: string | null;
+  precoBase: number;
+  percentualDesconto: number;
+  precoFinal: number;
+  material?: string | null;
+  colecao?: string | null;
+}
+
+export interface IGeradorSlugProduto {
+  gerar(texto: string): string;
+}
+
+export interface ICalculadoraPrecoProduto {
+  calcularPrecoFinal(precoBase: number, percentualDesconto: number): number;
+}
+
+export interface IValidadorDadosProduto {
+  validar(data: CriarProdutoDTO): DadosProdutoValidados;
+}
+
+export class GeradorSlugProdutoPadrao implements IGeradorSlugProduto {
+  gerar(texto: string) {
     return texto
       .toLowerCase()
       .trim()
@@ -19,11 +43,22 @@ class ProdutosService {
       .replace(/[^a-z0-9\s-]/g, "")
       .replace(/\s+/g, "-");
   }
+}
 
-  private calcularPrecoFinal(precoBase: number, percentualDesconto: number) {
+export class CalculadoraPrecoProdutoComDesconto
+  implements ICalculadoraPrecoProduto
+{
+  calcularPrecoFinal(precoBase: number, percentualDesconto: number) {
     const desconto = precoBase * (percentualDesconto / 100);
     return Number((precoBase - desconto).toFixed(2));
   }
+}
+
+export class ValidadorDadosProdutoPadrao implements IValidadorDadosProduto {
+  constructor(
+    private geradorSlugProduto: IGeradorSlugProduto,
+    private calculadoraPrecoProduto: ICalculadoraPrecoProduto
+  ) {}
 
   private validarNome(nome: unknown) {
     if (!nome) {
@@ -77,12 +112,43 @@ class ProdutosService {
     return percentualDescontoNumber;
   }
 
+  validar(data: CriarProdutoDTO) {
+    const nome = this.validarNome(data.nome);
+    const precoBase = this.validarPrecoBase(data.precoBase);
+    const percentualDesconto = this.validarPercentualDesconto(
+      data.percentualDesconto
+    );
+    const slug = this.geradorSlugProduto.gerar(nome);
+    const precoFinal = this.calculadoraPrecoProduto.calcularPrecoFinal(
+      precoBase,
+      percentualDesconto
+    );
+
+    return {
+      nome,
+      slug,
+      descricao: data.descricao,
+      precoBase,
+      percentualDesconto,
+      precoFinal,
+      material: data.material,
+      colecao: data.colecao,
+    };
+  }
+}
+
+export class ProdutosService {
+  constructor(
+    private produtosRepository: IProdutosRepository,
+    private validadorDadosProduto: IValidadorDadosProduto
+  ) {}
+
   private async validarCategoria(categoriaId: unknown, mensagemInativa: string) {
     if (!categoriaId) {
       throw new Error("A categoria do produto é obrigatória.");
     }
 
-    const categoria = await produtosRepository.buscarCategoriaPorId(
+    const categoria = await this.produtosRepository.buscarCategoriaPorId(
       String(categoriaId)
     );
 
@@ -97,50 +163,24 @@ class ProdutosService {
     return String(categoriaId);
   }
 
-  private montarDadosProduto(
-    data: CriarProdutoDTO,
-    mensagemCategoriaInativa: string
-  ) {
-    const nome = this.validarNome(data.nome);
-    const precoBase = this.validarPrecoBase(data.precoBase);
-    const percentualDesconto = this.validarPercentualDesconto(
-      data.percentualDesconto
-    );
-    const slug = this.gerarSlug(nome);
-    const precoFinal = this.calcularPrecoFinal(precoBase, percentualDesconto);
-
-    return {
-      nome,
-      slug,
-      descricao: data.descricao,
-      precoBase,
-      percentualDesconto,
-      precoFinal,
-      material: data.material,
-      colecao: data.colecao,
-      mensagemCategoriaInativa,
-    };
-  }
-
   async criar(data: CriarProdutoDTO) {
-    const dadosProduto = this.montarDadosProduto(
-      data,
-      "Não é possível criar produto em uma categoria inativa."
-    );
+    const dadosProduto = this.validadorDadosProduto.validar(data);
+
     const categoriaId = await this.validarCategoria(
       data.categoriaId,
-      dadosProduto.mensagemCategoriaInativa
+      "Não é possível criar produto em uma categoria inativa."
     );
 
-    const produtoExistente = await produtosRepository.buscarProdutoSimplesPorSlug(
-      dadosProduto.slug
-    );
+    const produtoExistente =
+      await this.produtosRepository.buscarProdutoSimplesPorSlug(
+        dadosProduto.slug
+      );
 
     if (produtoExistente) {
       throw new Error("Já existe um produto com esse nome.");
     }
 
-    return produtosRepository.criarProduto({
+    return this.produtosRepository.criarProduto({
       nome: dadosProduto.nome,
       slug: dadosProduto.slug,
       descricao: dadosProduto.descricao,
@@ -154,11 +194,13 @@ class ProdutosService {
   }
 
   async listar() {
-    return produtosRepository.listarProdutosAtivos();
+    return this.produtosRepository.listarProdutosAtivos();
   }
 
   async buscarPorSlug(data: BuscarProdutoPorSlugDTO) {
-    const produto = await produtosRepository.buscarProdutoPorSlug(data.slug);
+    const produto = await this.produtosRepository.buscarProdutoPorSlug(
+      data.slug
+    );
 
     if (!produto) {
       throw new Error("Produto não encontrado.");
@@ -168,7 +210,7 @@ class ProdutosService {
   }
 
   async buscarPorId(data: BuscarProdutoPorIdDTO) {
-    const produto = await produtosRepository.buscarProdutoPorId(data.id);
+    const produto = await this.produtosRepository.buscarProdutoPorId(data.id);
 
     if (!produto) {
       throw new Error("Produto não encontrado.");
@@ -178,29 +220,31 @@ class ProdutosService {
   }
 
   async atualizar(data: AtualizarProdutoDTO) {
-    const produto = await produtosRepository.buscarProdutoSimplesPorId(data.id);
+    const produto = await this.produtosRepository.buscarProdutoSimplesPorId(
+      data.id
+    );
 
     if (!produto) {
       throw new Error("Produto não encontrado.");
     }
 
-    const dadosProduto = this.montarDadosProduto(
-      data,
-      "Não é possível vincular produto a uma categoria inativa."
-    );
+    const dadosProduto = this.validadorDadosProduto.validar(data);
+
     const categoriaId = await this.validarCategoria(
       data.categoriaId,
-      dadosProduto.mensagemCategoriaInativa
+      "Não é possível vincular produto a uma categoria inativa."
     );
 
     const produtoComMesmoSlug =
-      await produtosRepository.buscarProdutoSimplesPorSlug(dadosProduto.slug);
+      await this.produtosRepository.buscarProdutoSimplesPorSlug(
+        dadosProduto.slug
+      );
 
     if (produtoComMesmoSlug && produtoComMesmoSlug.id !== data.id) {
       throw new Error("Já existe outro produto com esse nome.");
     }
 
-    return produtosRepository.atualizarProduto(data.id, {
+    return this.produtosRepository.atualizarProduto(data.id, {
       nome: dadosProduto.nome,
       slug: dadosProduto.slug,
       descricao: dadosProduto.descricao,
@@ -214,7 +258,9 @@ class ProdutosService {
   }
 
   async desativar(data: DesativarProdutoDTO) {
-    const produto = await produtosRepository.buscarProdutoSimplesPorId(data.id);
+    const produto = await this.produtosRepository.buscarProdutoSimplesPorId(
+      data.id
+    );
 
     if (!produto) {
       throw new Error("Produto não encontrado.");
@@ -224,11 +270,13 @@ class ProdutosService {
       throw new Error("Produto já está desativado.");
     }
 
-    return produtosRepository.atualizarStatusProduto(data.id, false);
+    return this.produtosRepository.atualizarStatusProduto(data.id, false);
   }
 
   async ativar(data: AtivarProdutoDTO) {
-    const produto = await produtosRepository.buscarProdutoSimplesPorId(data.id);
+    const produto = await this.produtosRepository.buscarProdutoSimplesPorId(
+      data.id
+    );
 
     if (!produto) {
       throw new Error("Produto não encontrado.");
@@ -238,17 +286,19 @@ class ProdutosService {
       throw new Error("Produto já está ativo.");
     }
 
-    return produtosRepository.atualizarStatusProduto(data.id, true);
+    return this.produtosRepository.atualizarStatusProduto(data.id, true);
   }
 
   async remover(data: RemoverProdutoDTO) {
-    const produto = await produtosRepository.buscarProdutoSimplesPorId(data.id);
+    const produto = await this.produtosRepository.buscarProdutoSimplesPorId(
+      data.id
+    );
 
     if (!produto) {
       throw new Error("Produto não encontrado.");
     }
 
-    const produtoRemovido = await produtosRepository.atualizarStatusProduto(
+    const produtoRemovido = await this.produtosRepository.atualizarStatusProduto(
       data.id,
       false
     );
@@ -260,4 +310,14 @@ class ProdutosService {
   }
 }
 
-export const produtosService = new ProdutosService();
+const geradorSlugProduto = new GeradorSlugProdutoPadrao();
+const calculadoraPrecoProduto = new CalculadoraPrecoProdutoComDesconto();
+const validadorDadosProduto = new ValidadorDadosProdutoPadrao(
+  geradorSlugProduto,
+  calculadoraPrecoProduto
+);
+
+export const produtosService = new ProdutosService(
+  produtosRepository,
+  validadorDadosProduto
+);

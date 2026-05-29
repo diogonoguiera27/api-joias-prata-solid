@@ -9,8 +9,67 @@ import {
   AbandonarCarrinhoDTO,
 } from "../models/carrinho.model";
 
-class CarrinhosService {
-  private calcularSubtotalItem(
+type CarrinhosRepository = typeof carrinhosRepository;
+
+export interface TotaisItemCarrinho {
+  precoUnitario: number;
+  subtotal: number;
+}
+
+interface ProdutoCarrinho {
+  id: string;
+  ativo: boolean;
+  precoFinal: unknown;
+}
+
+interface VariacaoCarrinho {
+  produtoId: string;
+  ativo: boolean;
+  estoque: number;
+  precoAdicional: unknown;
+}
+
+interface ItemCarrinhoComProdutoVariacao {
+  carrinhoId: string;
+  produto: {
+    precoFinal: unknown;
+  };
+  variacao: {
+    estoque: number;
+    precoAdicional: unknown;
+  };
+}
+
+export interface ICalculadoraTotaisItemCarrinho {
+  calcular(
+    precoFinalProduto: unknown,
+    precoAdicionalVariacao: unknown,
+    quantidade: number
+  ): TotaisItemCarrinho;
+}
+
+export interface IValidadorQuantidadeCarrinho {
+  validar(quantidade: unknown): number;
+}
+
+export interface IRegraCarrinhoAtivo {
+  validar(status: StatusCarrinho, mensagem?: string): void;
+}
+
+export interface IRegraItemCarrinho {
+  validarProduto(produto: ProdutoCarrinho): void;
+  validarVariacao(produto: ProdutoCarrinho, variacao: VariacaoCarrinho): void;
+  validarEstoque(quantidade: number, estoque: number): void;
+  validarPertencimentoItem(
+    item: ItemCarrinhoComProdutoVariacao | null,
+    carrinhoId: string
+  ): asserts item is ItemCarrinhoComProdutoVariacao;
+}
+
+export class CalculadoraTotaisItemCarrinhoPadrao
+  implements ICalculadoraTotaisItemCarrinho
+{
+  calcular(
     precoFinalProduto: unknown,
     precoAdicionalVariacao: unknown,
     quantidade: number
@@ -25,8 +84,12 @@ class CarrinhosService {
       subtotal: Number(subtotal.toFixed(2)),
     };
   }
+}
 
-  private validarQuantidade(quantidade: unknown) {
+export class ValidadorQuantidadeCarrinhoPadrao
+  implements IValidadorQuantidadeCarrinho
+{
+  validar(quantidade: unknown) {
     const quantidadeNumber = Number(quantidade);
 
     if (Number.isNaN(quantidadeNumber) || !Number.isInteger(quantidadeNumber)) {
@@ -39,18 +102,66 @@ class CarrinhosService {
 
     return quantidadeNumber;
   }
+}
 
-  private validarCarrinhoAtivo(status: StatusCarrinho) {
+export class RegraCarrinhoAtivoPadrao implements IRegraCarrinhoAtivo {
+  validar(
+    status: StatusCarrinho,
+    mensagem = "Não é possível alterar um carrinho que não está ativo."
+  ) {
     if (status !== StatusCarrinho.ATIVO) {
-      throw new Error("Não é possível alterar um carrinho que não está ativo.");
+      throw new Error(mensagem);
     }
   }
+}
+
+export class RegraItemCarrinhoPadrao implements IRegraItemCarrinho {
+  validarProduto(produto: ProdutoCarrinho) {
+    if (!produto.ativo) {
+      throw new Error("Produto inativo não pode ser adicionado ao carrinho.");
+    }
+  }
+
+  validarVariacao(produto: ProdutoCarrinho, variacao: VariacaoCarrinho) {
+    if (!variacao.ativo) {
+      throw new Error("Variação inativa não pode ser adicionada ao carrinho.");
+    }
+
+    if (variacao.produtoId !== produto.id) {
+      throw new Error("A variação informada não pertence ao produto informado.");
+    }
+  }
+
+  validarEstoque(quantidade: number, estoque: number) {
+    if (quantidade > estoque) {
+      throw new Error("Quantidade solicitada maior que o estoque disponível.");
+    }
+  }
+
+  validarPertencimentoItem(
+    item: ItemCarrinhoComProdutoVariacao | null,
+    carrinhoId: string
+  ): asserts item is ItemCarrinhoComProdutoVariacao {
+    if (!item || item.carrinhoId !== carrinhoId) {
+      throw new Error("Item do carrinho não encontrado.");
+    }
+  }
+}
+
+export class CarrinhosService {
+  constructor(
+    private carrinhosRepository: CarrinhosRepository,
+    private calculadoraTotaisItemCarrinho: ICalculadoraTotaisItemCarrinho,
+    private validadorQuantidadeCarrinho: IValidadorQuantidadeCarrinho,
+    private regraCarrinhoAtivo: IRegraCarrinhoAtivo,
+    private regraItemCarrinho: IRegraItemCarrinho
+  ) {}
 
   async criar(data: CriarCarrinhoDTO) {
     const { clienteId } = data;
 
     if (clienteId) {
-      const cliente = await carrinhosRepository.buscarClientePorId(
+      const cliente = await this.carrinhosRepository.buscarClientePorId(
         String(clienteId)
       );
 
@@ -59,7 +170,7 @@ class CarrinhosService {
       }
     }
 
-    const carrinho = await carrinhosRepository.criarCarrinho(
+    const carrinho = await this.carrinhosRepository.criarCarrinho(
       clienteId ? String(clienteId) : null
     );
 
@@ -67,13 +178,13 @@ class CarrinhosService {
   }
 
   async listar() {
-    const carrinhos = await carrinhosRepository.listarCarrinhos();
+    const carrinhos = await this.carrinhosRepository.listarCarrinhos();
 
     return carrinhos;
   }
 
   async buscarPorId(id: string) {
-    const carrinho = await carrinhosRepository.buscarCarrinhoPorId(id);
+    const carrinho = await this.carrinhosRepository.buscarCarrinhoPorId(id);
 
     if (!carrinho) {
       throw new Error("Carrinho não encontrado.");
@@ -97,9 +208,11 @@ class CarrinhosService {
       throw new Error("A quantidade é obrigatória.");
     }
 
-    const quantidadeNumber = this.validarQuantidade(quantidade);
+    const quantidadeNumber = this.validadorQuantidadeCarrinho.validar(
+      quantidade
+    );
 
-    const carrinho = await carrinhosRepository.buscarCarrinhoSimplesPorId(
+    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
       carrinhoId
     );
 
@@ -107,9 +220,9 @@ class CarrinhosService {
       throw new Error("Carrinho não encontrado.");
     }
 
-    this.validarCarrinhoAtivo(carrinho.status);
+    this.regraCarrinhoAtivo.validar(carrinho.status);
 
-    const produto = await carrinhosRepository.buscarProdutoPorId(
+    const produto = await this.carrinhosRepository.buscarProdutoPorId(
       String(produtoId)
     );
 
@@ -117,11 +230,9 @@ class CarrinhosService {
       throw new Error("Produto não encontrado.");
     }
 
-    if (!produto.ativo) {
-      throw new Error("Produto inativo não pode ser adicionado ao carrinho.");
-    }
+    this.regraItemCarrinho.validarProduto(produto);
 
-    const variacao = await carrinhosRepository.buscarVariacaoPorId(
+    const variacao = await this.carrinhosRepository.buscarVariacaoPorId(
       String(variacaoId)
     );
 
@@ -129,15 +240,9 @@ class CarrinhosService {
       throw new Error("Variação de produto não encontrada.");
     }
 
-    if (!variacao.ativo) {
-      throw new Error("Variação inativa não pode ser adicionada ao carrinho.");
-    }
+    this.regraItemCarrinho.validarVariacao(produto, variacao);
 
-    if (variacao.produtoId !== produto.id) {
-      throw new Error("A variação informada não pertence ao produto informado.");
-    }
-
-    const itemExistente = await carrinhosRepository.buscarItemExistente(
+    const itemExistente = await this.carrinhosRepository.buscarItemExistente(
       carrinhoId,
       String(produtoId),
       String(variacaoId)
@@ -147,25 +252,23 @@ class CarrinhosService {
       ? itemExistente.quantidade + quantidadeNumber
       : quantidadeNumber;
 
-    if (quantidadeFinal > variacao.estoque) {
-      throw new Error("Quantidade solicitada maior que o estoque disponível.");
-    }
+    this.regraItemCarrinho.validarEstoque(quantidadeFinal, variacao.estoque);
 
-    const { precoUnitario, subtotal } = this.calcularSubtotalItem(
+    const { precoUnitario, subtotal } = this.calculadoraTotaisItemCarrinho.calcular(
       produto.precoFinal,
       variacao.precoAdicional,
       quantidadeFinal
     );
 
     if (itemExistente) {
-      return carrinhosRepository.atualizarItemCarrinho(itemExistente.id, {
+      return this.carrinhosRepository.atualizarItemCarrinho(itemExistente.id, {
         quantidade: quantidadeFinal,
         precoUnitario,
         subtotal,
       });
     }
 
-    return carrinhosRepository.criarItemCarrinho({
+    return this.carrinhosRepository.criarItemCarrinho({
       carrinhoId,
       produtoId: String(produtoId),
       variacaoId: String(variacaoId),
@@ -178,7 +281,7 @@ class CarrinhosService {
   async atualizarQuantidadeItem(data: AtualizarQuantidadeItemCarrinhoDTO) {
     const { carrinhoId, itemId, quantidade } = data;
 
-    const carrinho = await carrinhosRepository.buscarCarrinhoSimplesPorId(
+    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
       carrinhoId
     );
 
@@ -186,27 +289,28 @@ class CarrinhosService {
       throw new Error("Carrinho não encontrado.");
     }
 
-    this.validarCarrinhoAtivo(carrinho.status);
+    this.regraCarrinhoAtivo.validar(carrinho.status);
 
-    const item = await carrinhosRepository.buscarItemPorId(itemId);
+    const item = await this.carrinhosRepository.buscarItemPorId(itemId);
 
-    if (!item || item.carrinhoId !== carrinhoId) {
-      throw new Error("Item do carrinho não encontrado.");
-    }
+    this.regraItemCarrinho.validarPertencimentoItem(item, carrinhoId);
 
-    const quantidadeNumber = this.validarQuantidade(quantidade);
+    const quantidadeNumber = this.validadorQuantidadeCarrinho.validar(
+      quantidade
+    );
 
-    if (quantidadeNumber > item.variacao.estoque) {
-      throw new Error("Quantidade solicitada maior que o estoque disponível.");
-    }
+    this.regraItemCarrinho.validarEstoque(
+      quantidadeNumber,
+      item.variacao.estoque
+    );
 
-    const { precoUnitario, subtotal } = this.calcularSubtotalItem(
+    const { precoUnitario, subtotal } = this.calculadoraTotaisItemCarrinho.calcular(
       item.produto.precoFinal,
       item.variacao.precoAdicional,
       quantidadeNumber
     );
 
-    const itemAtualizado = await carrinhosRepository.atualizarItemCarrinho(
+    const itemAtualizado = await this.carrinhosRepository.atualizarItemCarrinho(
       itemId,
       {
         quantidade: quantidadeNumber,
@@ -221,7 +325,7 @@ class CarrinhosService {
   async removerItem(data: RemoverItemCarrinhoDTO) {
     const { carrinhoId, itemId } = data;
 
-    const carrinho = await carrinhosRepository.buscarCarrinhoSimplesPorId(
+    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
       carrinhoId
     );
 
@@ -229,15 +333,13 @@ class CarrinhosService {
       throw new Error("Carrinho não encontrado.");
     }
 
-    this.validarCarrinhoAtivo(carrinho.status);
+    this.regraCarrinhoAtivo.validar(carrinho.status);
 
-    const item = await carrinhosRepository.buscarItemPorId(itemId);
+    const item = await this.carrinhosRepository.buscarItemPorId(itemId);
 
-    if (!item || item.carrinhoId !== carrinhoId) {
-      throw new Error("Item do carrinho não encontrado.");
-    }
+    this.regraItemCarrinho.validarPertencimentoItem(item, carrinhoId);
 
-    await carrinhosRepository.removerItemCarrinho(itemId);
+    await this.carrinhosRepository.removerItemCarrinho(itemId);
 
     return {
       message: "Item removido do carrinho com sucesso.",
@@ -247,7 +349,7 @@ class CarrinhosService {
   async limpar(data: LimparCarrinhoDTO) {
     const { carrinhoId } = data;
 
-    const carrinho = await carrinhosRepository.buscarCarrinhoSimplesPorId(
+    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
       carrinhoId
     );
 
@@ -255,11 +357,12 @@ class CarrinhosService {
       throw new Error("Carrinho não encontrado.");
     }
 
-    if (carrinho.status !== StatusCarrinho.ATIVO) {
-      throw new Error("Não é possível limpar um carrinho que não está ativo.");
-    }
+    this.regraCarrinhoAtivo.validar(
+      carrinho.status,
+      "Não é possível limpar um carrinho que não está ativo."
+    );
 
-    await carrinhosRepository.limparItensDoCarrinho(carrinhoId);
+    await this.carrinhosRepository.limparItensDoCarrinho(carrinhoId);
 
     return {
       message: "Carrinho limpo com sucesso.",
@@ -269,7 +372,7 @@ class CarrinhosService {
   async abandonar(data: AbandonarCarrinhoDTO) {
     const { carrinhoId } = data;
 
-    const carrinho = await carrinhosRepository.buscarCarrinhoSimplesPorId(
+    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
       carrinhoId
     );
 
@@ -277,17 +380,30 @@ class CarrinhosService {
       throw new Error("Carrinho não encontrado.");
     }
 
-    if (carrinho.status !== StatusCarrinho.ATIVO) {
-      throw new Error("Somente carrinho ativo pode ser abandonado.");
-    }
-
-    const carrinhoAtualizado = await carrinhosRepository.atualizarStatusCarrinho(
-      carrinhoId,
-      StatusCarrinho.ABANDONADO
+    this.regraCarrinhoAtivo.validar(
+      carrinho.status,
+      "Somente carrinho ativo pode ser abandonado."
     );
+
+    const carrinhoAtualizado =
+      await this.carrinhosRepository.atualizarStatusCarrinho(
+        carrinhoId,
+        StatusCarrinho.ABANDONADO
+      );
 
     return carrinhoAtualizado;
   }
 }
 
-export const carrinhosService = new CarrinhosService();
+const calculadoraTotaisItemCarrinho = new CalculadoraTotaisItemCarrinhoPadrao();
+const validadorQuantidadeCarrinho = new ValidadorQuantidadeCarrinhoPadrao();
+const regraCarrinhoAtivo = new RegraCarrinhoAtivoPadrao();
+const regraItemCarrinho = new RegraItemCarrinhoPadrao();
+
+export const carrinhosService = new CarrinhosService(
+  carrinhosRepository,
+  calculadoraTotaisItemCarrinho,
+  validadorQuantidadeCarrinho,
+  regraCarrinhoAtivo,
+  regraItemCarrinho
+);

@@ -11,8 +11,73 @@ import {
 } from "../models/cupom.model";
 import { cuponsRepository } from "../repositories/cupons.repository";
 
-class CuponsService {
-  private normalizarCodigo(codigo: unknown) {
+type CuponsRepository = typeof cuponsRepository;
+
+export interface DadosCupomValidados {
+  codigo: string;
+  tipoDesconto: TipoDescontoCupom;
+  valorDesconto: number;
+  valorMinimoPedido: number | null;
+  limiteUso: number | null;
+  iniciaEm: Date | null;
+  expiraEm: Date | null;
+}
+
+interface CupomAplicavel {
+  ativo: boolean;
+  iniciaEm?: Date | null;
+  expiraEm?: Date | null;
+  limiteUso: number | null;
+  quantidadeUsada: number;
+  valorMinimoPedido: unknown | null;
+}
+
+interface CupomComDesconto extends CupomAplicavel {
+  tipoDesconto: TipoDescontoCupom;
+  valorDesconto: unknown;
+}
+
+interface ValoresAplicacaoCupom {
+  subtotal: number;
+  frete: number;
+}
+
+interface ResultadoCalculoCupom {
+  desconto: number;
+  freteFinal: number;
+}
+
+export interface INormalizadorCodigoCupom {
+  normalizar(codigo: unknown): string;
+}
+
+export interface IValidadorDadosCupom {
+  validar(data: CriarCupomDTO): DadosCupomValidados;
+}
+
+export interface IValidadorValoresAplicacaoCupom {
+  validar(data: AplicarCupomDTO): ValoresAplicacaoCupom;
+}
+
+export interface IRegraAplicacaoCupom {
+  validar(cupom: CupomAplicavel, valores: ValoresAplicacaoCupom): void;
+}
+
+export interface ICalculadoraDescontoCupom {
+  calcular(cupom: CupomComDesconto, valores: ValoresAplicacaoCupom): ResultadoCalculoCupom;
+}
+
+export interface ICalculadorasDescontoCupom {
+  obter(tipoDesconto: TipoDescontoCupom): ICalculadoraDescontoCupom;
+}
+
+export interface IRegraStatusCupom {
+  validarAtivacao(cupom: { ativo: boolean }): void;
+  validarDesativacao(cupom: { ativo: boolean }): void;
+}
+
+export class NormalizadorCodigoCupomPadrao implements INormalizadorCodigoCupom {
+  normalizar(codigo: unknown) {
     if (!codigo) {
       throw new Error("O código do cupom é obrigatório.");
     }
@@ -27,6 +92,10 @@ class CuponsService {
 
     return codigo.trim().toUpperCase();
   }
+}
+
+export class ValidadorDadosCupomPadrao implements IValidadorDadosCupom {
+  constructor(private normalizadorCodigoCupom: INormalizadorCodigoCupom) {}
 
   private validarTipoDesconto(tipoDesconto: unknown) {
     if (!tipoDesconto) {
@@ -113,24 +182,8 @@ class CuponsService {
     return data ? new Date(data) : null;
   }
 
-  private cupomEstaVencido(expiraEm?: Date | null) {
-    if (!expiraEm) {
-      return false;
-    }
-
-    return new Date() > new Date(expiraEm);
-  }
-
-  private cupomAindaNaoIniciou(iniciaEm?: Date | null) {
-    if (!iniciaEm) {
-      return false;
-    }
-
-    return new Date() < new Date(iniciaEm);
-  }
-
-  private montarDadosCupom(data: CriarCupomDTO) {
-    const codigo = this.normalizarCodigo(data.codigo);
+  validar(data: CriarCupomDTO) {
+    const codigo = this.normalizadorCodigoCupom.normalizar(data.codigo);
     const tipoDesconto = this.validarTipoDesconto(data.tipoDesconto);
     const valorDesconto = this.validarValorDesconto(
       data.valorDesconto,
@@ -151,54 +204,49 @@ class CuponsService {
       expiraEm: this.converterData(data.expiraEm),
     };
   }
+}
 
-  async criar(data: CriarCupomDTO) {
-    const dadosCupom = this.montarDadosCupom(data);
+export class ValidadorValoresAplicacaoCupomPadrao
+  implements IValidadorValoresAplicacaoCupom
+{
+  validar(data: AplicarCupomDTO) {
+    const subtotal = Number(data.subtotal);
 
-    const cupomExistente = await cuponsRepository.buscarCupomPorCodigo(
-      dadosCupom.codigo
-    );
-
-    if (cupomExistente) {
-      throw new Error("Já existe um cupom com esse código.");
+    if (Number.isNaN(subtotal) || subtotal <= 0) {
+      throw new Error("Subtotal inválido.");
     }
 
-    return cuponsRepository.criarCupom(dadosCupom);
-  }
+    const frete = Number(data.frete ?? 0);
 
-  async listar() {
-    return cuponsRepository.listarCupons();
-  }
-
-  async buscarPorCodigo(data: BuscarCupomPorCodigoDTO) {
-    const codigo = this.normalizarCodigo(data.codigo);
-    const cupom = await cuponsRepository.buscarCupomPorCodigo(codigo);
-
-    if (!cupom) {
-      throw new Error("Cupom não encontrado.");
+    if (Number.isNaN(frete) || frete < 0) {
+      throw new Error("Frete inválido.");
     }
 
-    return cupom;
+    return {
+      subtotal,
+      frete,
+    };
   }
+}
 
-  async buscarPorId(data: BuscarCupomPorIdDTO) {
-    const cupom = await cuponsRepository.buscarCupomPorId(data.id);
-
-    if (!cupom) {
-      throw new Error("Cupom não encontrado.");
+export class RegraAplicacaoCupomPadrao implements IRegraAplicacaoCupom {
+  private cupomEstaVencido(expiraEm?: Date | null) {
+    if (!expiraEm) {
+      return false;
     }
 
-    return cupom;
+    return new Date() > new Date(expiraEm);
   }
 
-  async aplicar(data: AplicarCupomDTO) {
-    const codigo = this.normalizarCodigo(String(data.codigo));
-    const cupom = await cuponsRepository.buscarCupomPorCodigo(codigo);
-
-    if (!cupom) {
-      throw new Error("Cupom não encontrado.");
+  private cupomAindaNaoIniciou(iniciaEm?: Date | null) {
+    if (!iniciaEm) {
+      return false;
     }
 
+    return new Date() < new Date(iniciaEm);
+  }
+
+  validar(cupom: CupomAplicavel, valores: ValoresAplicacaoCupom) {
     if (!cupom.ativo) {
       throw new Error("Cupom inativo.");
     }
@@ -215,112 +263,207 @@ class CuponsService {
       throw new Error("Cupom atingiu o limite máximo de uso.");
     }
 
-    const subtotal = Number(data.subtotal);
-
-    if (Number.isNaN(subtotal) || subtotal <= 0) {
-      throw new Error("Subtotal inválido.");
-    }
-
-    const frete = Number(data.frete ?? 0);
-
-    if (Number.isNaN(frete) || frete < 0) {
-      throw new Error("Frete inválido.");
-    }
-
     if (
       cupom.valorMinimoPedido !== null &&
-      subtotal < Number(cupom.valorMinimoPedido)
+      valores.subtotal < Number(cupom.valorMinimoPedido)
     ) {
       throw new Error("Subtotal menor que o valor mínimo exigido pelo cupom.");
     }
+  }
+}
 
-    let desconto = 0;
-    let freteFinal = frete;
+export class CalculadoraCupomPercentual implements ICalculadoraDescontoCupom {
+  calcular(cupom: CupomComDesconto, valores: ValoresAplicacaoCupom) {
+    const desconto = valores.subtotal * (Number(cupom.valorDesconto) / 100);
 
-    if (cupom.tipoDesconto === TipoDescontoCupom.PERCENTUAL) {
-      desconto = subtotal * (Number(cupom.valorDesconto) / 100);
+    return {
+      desconto: Math.min(desconto, valores.subtotal),
+      freteFinal: valores.frete,
+    };
+  }
+}
+
+export class CalculadoraCupomValorFixo implements ICalculadoraDescontoCupom {
+  calcular(cupom: CupomComDesconto, valores: ValoresAplicacaoCupom) {
+    const desconto = Number(cupom.valorDesconto);
+
+    return {
+      desconto: Math.min(desconto, valores.subtotal),
+      freteFinal: valores.frete,
+    };
+  }
+}
+
+export class CalculadoraCupomFreteGratis implements ICalculadoraDescontoCupom {
+  calcular(_cupom: CupomComDesconto, _valores: ValoresAplicacaoCupom) {
+    return {
+      desconto: 0,
+      freteFinal: 0,
+    };
+  }
+}
+
+export class CalculadorasDescontoCupomPadrao
+  implements ICalculadorasDescontoCupom
+{
+  private calculadoras = new Map<TipoDescontoCupom, ICalculadoraDescontoCupom>([
+    [TipoDescontoCupom.PERCENTUAL, new CalculadoraCupomPercentual()],
+    [TipoDescontoCupom.VALOR_FIXO, new CalculadoraCupomValorFixo()],
+    [TipoDescontoCupom.FRETE_GRATIS, new CalculadoraCupomFreteGratis()],
+  ]);
+
+  obter(tipoDesconto: TipoDescontoCupom) {
+    const calculadora = this.calculadoras.get(tipoDesconto);
+
+    if (!calculadora) {
+      throw new Error("Tipo de desconto sem calculadora configurada.");
     }
 
-    if (cupom.tipoDesconto === TipoDescontoCupom.VALOR_FIXO) {
-      desconto = Number(cupom.valorDesconto);
+    return calculadora;
+  }
+}
+
+export class RegraStatusCupomPadrao implements IRegraStatusCupom {
+  validarAtivacao(cupom: { ativo: boolean }) {
+    if (cupom.ativo) {
+      throw new Error("Cupom já está ativo.");
+    }
+  }
+
+  validarDesativacao(cupom: { ativo: boolean }) {
+    if (!cupom.ativo) {
+      throw new Error("Cupom já está desativado.");
+    }
+  }
+}
+
+export class CuponsService {
+  constructor(
+    private cuponsRepository: CuponsRepository,
+    private normalizadorCodigoCupom: INormalizadorCodigoCupom,
+    private validadorDadosCupom: IValidadorDadosCupom,
+    private validadorValoresAplicacaoCupom: IValidadorValoresAplicacaoCupom,
+    private regraAplicacaoCupom: IRegraAplicacaoCupom,
+    private calculadorasDescontoCupom: ICalculadorasDescontoCupom,
+    private regraStatusCupom: IRegraStatusCupom
+  ) {}
+
+  async criar(data: CriarCupomDTO) {
+    const dadosCupom = this.validadorDadosCupom.validar(data);
+
+    const cupomExistente = await this.cuponsRepository.buscarCupomPorCodigo(
+      dadosCupom.codigo
+    );
+
+    if (cupomExistente) {
+      throw new Error("Já existe um cupom com esse código.");
     }
 
-    if (cupom.tipoDesconto === TipoDescontoCupom.FRETE_GRATIS) {
-      freteFinal = 0;
+    return this.cuponsRepository.criarCupom(dadosCupom);
+  }
+
+  async listar() {
+    return this.cuponsRepository.listarCupons();
+  }
+
+  async buscarPorCodigo(data: BuscarCupomPorCodigoDTO) {
+    const codigo = this.normalizadorCodigoCupom.normalizar(data.codigo);
+    const cupom = await this.cuponsRepository.buscarCupomPorCodigo(codigo);
+
+    if (!cupom) {
+      throw new Error("Cupom não encontrado.");
     }
 
-    if (desconto > subtotal) {
-      desconto = subtotal;
+    return cupom;
+  }
+
+  async buscarPorId(data: BuscarCupomPorIdDTO) {
+    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+
+    if (!cupom) {
+      throw new Error("Cupom não encontrado.");
     }
 
-    const total = subtotal - desconto + freteFinal;
+    return cupom;
+  }
+
+  async aplicar(data: AplicarCupomDTO) {
+    const codigo = this.normalizadorCodigoCupom.normalizar(data.codigo);
+    const cupom = await this.cuponsRepository.buscarCupomPorCodigo(codigo);
+
+    if (!cupom) {
+      throw new Error("Cupom não encontrado.");
+    }
+
+    const valores = this.validadorValoresAplicacaoCupom.validar(data);
+    this.regraAplicacaoCupom.validar(cupom, valores);
+    const calculadora = this.calculadorasDescontoCupom.obter(
+      cupom.tipoDesconto
+    );
+    const { desconto, freteFinal } = calculadora.calcular(cupom, valores);
+    const total = valores.subtotal - desconto + freteFinal;
 
     return {
       cupom,
-      subtotal: Number(subtotal.toFixed(2)),
+      subtotal: Number(valores.subtotal.toFixed(2)),
       desconto: Number(desconto.toFixed(2)),
-      freteOriginal: Number(frete.toFixed(2)),
+      freteOriginal: Number(valores.frete.toFixed(2)),
       freteFinal: Number(freteFinal.toFixed(2)),
       total: Number(total.toFixed(2)),
     };
   }
 
   async atualizar(data: AtualizarCupomDTO) {
-    const cupom = await cuponsRepository.buscarCupomPorId(data.id);
+    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
     }
 
-    const dadosCupom = this.montarDadosCupom(data);
+    const dadosCupom = this.validadorDadosCupom.validar(data);
 
-    const cupomComMesmoCodigo = await cuponsRepository.buscarCupomPorCodigo(
-      dadosCupom.codigo
-    );
+    const cupomComMesmoCodigo =
+      await this.cuponsRepository.buscarCupomPorCodigo(dadosCupom.codigo);
 
     if (cupomComMesmoCodigo && cupomComMesmoCodigo.id !== data.id) {
       throw new Error("Já existe outro cupom com esse código.");
     }
 
-    return cuponsRepository.atualizarCupom(data.id, dadosCupom);
+    return this.cuponsRepository.atualizarCupom(data.id, dadosCupom);
   }
 
   async ativar(data: AtivarCupomDTO) {
-    const cupom = await cuponsRepository.buscarCupomPorId(data.id);
+    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
     }
 
-    if (cupom.ativo) {
-      throw new Error("Cupom já está ativo.");
-    }
+    this.regraStatusCupom.validarAtivacao(cupom);
 
-    return cuponsRepository.atualizarStatusCupom(data.id, true);
+    return this.cuponsRepository.atualizarStatusCupom(data.id, true);
   }
 
   async desativar(data: DesativarCupomDTO) {
-    const cupom = await cuponsRepository.buscarCupomPorId(data.id);
+    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
     }
 
-    if (!cupom.ativo) {
-      throw new Error("Cupom já está desativado.");
-    }
+    this.regraStatusCupom.validarDesativacao(cupom);
 
-    return cuponsRepository.atualizarStatusCupom(data.id, false);
+    return this.cuponsRepository.atualizarStatusCupom(data.id, false);
   }
 
   async remover(data: RemoverCupomDTO) {
-    const cupom = await cuponsRepository.buscarCupomPorId(data.id);
+    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
     }
 
-    const cupomRemovido = await cuponsRepository.atualizarStatusCupom(
+    const cupomRemovido = await this.cuponsRepository.atualizarStatusCupom(
       data.id,
       false
     );
@@ -332,4 +475,22 @@ class CuponsService {
   }
 }
 
-export const cuponsService = new CuponsService();
+const normalizadorCodigoCupom = new NormalizadorCodigoCupomPadrao();
+const validadorDadosCupom = new ValidadorDadosCupomPadrao(
+  normalizadorCodigoCupom
+);
+const validadorValoresAplicacaoCupom =
+  new ValidadorValoresAplicacaoCupomPadrao();
+const regraAplicacaoCupom = new RegraAplicacaoCupomPadrao();
+const calculadorasDescontoCupom = new CalculadorasDescontoCupomPadrao();
+const regraStatusCupom = new RegraStatusCupomPadrao();
+
+export const cuponsService = new CuponsService(
+  cuponsRepository,
+  normalizadorCodigoCupom,
+  validadorDadosCupom,
+  validadorValoresAplicacaoCupom,
+  regraAplicacaoCupom,
+  calculadorasDescontoCupom,
+  regraStatusCupom
+);

@@ -4,9 +4,20 @@ import {
   StatusPedido,
   TipoMovimentacaoEstoque,
 } from "../generated/prisma/enums";
+import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 
 class PagamentosRepository {
+  private getClient(tx?: Prisma.TransactionClient) {
+    return tx ?? prisma;
+  }
+
+  async executarTransacao<T>(
+    operacao: (tx: Prisma.TransactionClient) => Promise<T>
+  ) {
+    return prisma.$transaction(operacao);
+  }
+
   async buscarPedidoPorId(pedidoId: string) {
     return prisma.pedido.findUnique({
       where: {
@@ -131,55 +142,18 @@ class PagamentosRepository {
     });
   }
 
-  async aprovarPagamento(id: string, pagamento: Awaited<ReturnType<this["buscarPagamentoParaAprovacao"]>>) {
-    if (!pagamento) {
-      throw new Error("Pagamento não encontrado.");
-    }
-
-    return prisma.$transaction(async (tx) => {
-      const pagamentoAprovado = await tx.pagamento.update({
-        where: {
-          id,
-        },
-        data: {
-          status: StatusPagamento.APROVADO,
-          pagoEm: new Date(),
-        },
-      });
-
-      const pedidoAtualizado = await tx.pedido.update({
-        where: {
-          id: pagamento.pedidoId,
-        },
-        data: {
-          status: StatusPedido.PAGO,
-        },
-      });
-
-      for (const item of pagamento.pedido.itens) {
-        await tx.variacaoProduto.update({
-          where: {
-            id: item.variacaoId,
-          },
-          data: {
-            estoque: item.variacao.estoque - item.quantidade,
-          },
-        });
-
-        await tx.movimentacaoEstoque.create({
-          data: {
-            variacaoId: item.variacaoId,
-            tipo: TipoMovimentacaoEstoque.VENDA,
-            quantidade: item.quantidade,
-            motivo: `Baixa automática após pagamento aprovado do pedido ${pagamento.pedidoId}.`,
-          },
-        });
-      }
-
-      return {
-        pagamento: pagamentoAprovado,
-        pedido: pedidoAtualizado,
-      };
+  async marcarPagamentoComoAprovado(
+    id: string,
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).pagamento.update({
+      where: {
+        id,
+      },
+      data: {
+        status: StatusPagamento.APROVADO,
+        pagoEm: new Date(),
+      },
     });
   }
 
@@ -203,54 +177,61 @@ class PagamentosRepository {
     });
   }
 
-  async reembolsarPagamento(id: string, pagamento: Awaited<ReturnType<this["buscarPagamentoParaReembolso"]>>) {
-    if (!pagamento) {
-      throw new Error("Pagamento não encontrado.");
-    }
+  async marcarPagamentoComoReembolsado(
+    id: string,
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).pagamento.update({
+      where: {
+        id,
+      },
+      data: {
+        status: StatusPagamento.REEMBOLSADO,
+      },
+    });
+  }
 
-    return prisma.$transaction(async (tx) => {
-      const pagamentoReembolsado = await tx.pagamento.update({
-        where: {
-          id,
-        },
-        data: {
-          status: StatusPagamento.REEMBOLSADO,
-        },
-      });
+  async atualizarStatusPedido(
+    id: string,
+    status: StatusPedido,
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).pedido.update({
+      where: {
+        id,
+      },
+      data: {
+        status,
+      },
+    });
+  }
 
-      const pedidoReembolsado = await tx.pedido.update({
-        where: {
-          id: pagamento.pedidoId,
-        },
-        data: {
-          status: StatusPedido.REEMBOLSADO,
-        },
-      });
+  async atualizarEstoqueVariacao(
+    id: string,
+    estoque: number,
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).variacaoProduto.update({
+      where: {
+        id,
+      },
+      data: {
+        estoque,
+      },
+    });
+  }
 
-      for (const item of pagamento.pedido.itens) {
-        await tx.variacaoProduto.update({
-          where: {
-            id: item.variacaoId,
-          },
-          data: {
-            estoque: item.variacao.estoque + item.quantidade,
-          },
-        });
-
-        await tx.movimentacaoEstoque.create({
-          data: {
-            variacaoId: item.variacaoId,
-            tipo: TipoMovimentacaoEstoque.DEVOLUCAO_CANCELAMENTO,
-            quantidade: item.quantidade,
-            motivo: `Devolução automática após reembolso do pedido ${pagamento.pedidoId}.`,
-          },
-        });
-      }
-
-      return {
-        pagamento: pagamentoReembolsado,
-        pedido: pedidoReembolsado,
-      };
+  async criarMovimentacaoEstoque(
+    data: {
+      variacaoId: string;
+      tipo: TipoMovimentacaoEstoque;
+      quantidade: number;
+      motivo: string;
+    },
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).movimentacaoEstoque.create({
+      data,
     });
   }
 }

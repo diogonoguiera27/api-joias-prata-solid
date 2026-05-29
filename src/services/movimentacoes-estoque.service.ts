@@ -6,8 +6,28 @@ import {
 } from "../models/movimentacao-estoque.model";
 import { movimentacoesEstoqueRepository } from "../repositories/movimentacoes-estoque.repository";
 
-class MovimentacoesEstoqueService {
-  private validarTipoMovimentacao(tipo: unknown) {
+type MovimentacoesEstoqueRepository = typeof movimentacoesEstoqueRepository;
+
+export interface IValidadorTipoMovimentacaoEstoque {
+  validar(tipo: unknown): TipoMovimentacaoEstoque;
+}
+
+export interface IValidadorQuantidadeMovimentacaoEstoque {
+  validar(quantidade: unknown): number;
+}
+
+export interface ICalculadoraMovimentacaoEstoque {
+  calcular(estoqueAtual: number, quantidade: number): number;
+}
+
+export interface ICalculadorasMovimentacaoEstoque {
+  obter(tipo: TipoMovimentacaoEstoque): ICalculadoraMovimentacaoEstoque;
+}
+
+export class ValidadorTipoMovimentacaoEstoquePadrao
+  implements IValidadorTipoMovimentacaoEstoque
+{
+  validar(tipo: unknown) {
     if (!tipo) {
       throw new Error("O tipo da movimentação é obrigatório.");
     }
@@ -23,8 +43,12 @@ class MovimentacoesEstoqueService {
 
     return tipoFormatado as TipoMovimentacaoEstoque;
   }
+}
 
-  private validarQuantidade(quantidade: unknown) {
+export class ValidadorQuantidadeMovimentacaoEstoquePadrao
+  implements IValidadorQuantidadeMovimentacaoEstoque
+{
+  validar(quantidade: unknown) {
     if (quantidade === undefined || quantidade === null) {
       throw new Error("A quantidade é obrigatória.");
     }
@@ -45,32 +69,61 @@ class MovimentacoesEstoqueService {
 
     return quantidadeNumber;
   }
+}
 
-  private calcularNovoEstoque(
-    estoqueAtual: number,
-    tipo: TipoMovimentacaoEstoque,
-    quantidade: number
-  ) {
-    if (
-      tipo === TipoMovimentacaoEstoque.ENTRADA ||
-      tipo === TipoMovimentacaoEstoque.DEVOLUCAO_CANCELAMENTO
-    ) {
-      return estoqueAtual + quantidade;
-    }
-
-    if (
-      tipo === TipoMovimentacaoEstoque.SAIDA ||
-      tipo === TipoMovimentacaoEstoque.VENDA
-    ) {
-      return estoqueAtual - quantidade;
-    }
-
-    if (tipo === TipoMovimentacaoEstoque.AJUSTE) {
-      return quantidade;
-    }
-
-    return estoqueAtual;
+export class CalculadoraEntradaEstoque implements ICalculadoraMovimentacaoEstoque {
+  calcular(estoqueAtual: number, quantidade: number) {
+    return estoqueAtual + quantidade;
   }
+}
+
+export class CalculadoraSaidaEstoque implements ICalculadoraMovimentacaoEstoque {
+  calcular(estoqueAtual: number, quantidade: number) {
+    return estoqueAtual - quantidade;
+  }
+}
+
+export class CalculadoraAjusteEstoque implements ICalculadoraMovimentacaoEstoque {
+  calcular(_estoqueAtual: number, quantidade: number) {
+    return quantidade;
+  }
+}
+
+export class CalculadorasMovimentacaoEstoquePadrao
+  implements ICalculadorasMovimentacaoEstoque
+{
+  private calculadoras = new Map<
+    TipoMovimentacaoEstoque,
+    ICalculadoraMovimentacaoEstoque
+  >([
+    [TipoMovimentacaoEstoque.ENTRADA, new CalculadoraEntradaEstoque()],
+    [
+      TipoMovimentacaoEstoque.DEVOLUCAO_CANCELAMENTO,
+      new CalculadoraEntradaEstoque(),
+    ],
+    [TipoMovimentacaoEstoque.SAIDA, new CalculadoraSaidaEstoque()],
+    [TipoMovimentacaoEstoque.VENDA, new CalculadoraSaidaEstoque()],
+    [TipoMovimentacaoEstoque.AJUSTE, new CalculadoraAjusteEstoque()],
+  ]);
+
+  obter(tipo: TipoMovimentacaoEstoque) {
+    const calculadora = this.calculadoras.get(tipo);
+
+    if (!calculadora) {
+      throw new Error("Tipo de movimentação sem calculadora configurada.");
+    }
+
+    return calculadora;
+  }
+}
+
+export class MovimentacoesEstoqueService {
+  constructor(
+    private movimentacoesEstoqueRepository: MovimentacoesEstoqueRepository,
+    private validadorTipoMovimentacaoEstoque: IValidadorTipoMovimentacaoEstoque,
+    private validadorQuantidadeMovimentacaoEstoque: IValidadorQuantidadeMovimentacaoEstoque,
+    private calculadorasMovimentacaoEstoque: ICalculadorasMovimentacaoEstoque
+  ) {}
 
   async criar(data: CriarMovimentacaoEstoqueDTO) {
     if (!data.variacaoId) {
@@ -78,9 +131,10 @@ class MovimentacoesEstoqueService {
     }
 
     const variacaoId = String(data.variacaoId);
-    const variacao = await movimentacoesEstoqueRepository.buscarVariacaoPorId(
-      variacaoId
-    );
+    const variacao =
+      await this.movimentacoesEstoqueRepository.buscarVariacaoPorId(
+        variacaoId
+      );
 
     if (!variacao) {
       throw new Error("Variação de produto não encontrada.");
@@ -92,11 +146,13 @@ class MovimentacoesEstoqueService {
       );
     }
 
-    const tipo = this.validarTipoMovimentacao(data.tipo);
-    const quantidade = this.validarQuantidade(data.quantidade);
-    const novoEstoque = this.calcularNovoEstoque(
+    const tipo = this.validadorTipoMovimentacaoEstoque.validar(data.tipo);
+    const quantidade = this.validadorQuantidadeMovimentacaoEstoque.validar(
+      data.quantidade
+    );
+    const calculadora = this.calculadorasMovimentacaoEstoque.obter(tipo);
+    const novoEstoque = calculadora.calcular(
       variacao.estoque,
-      tipo,
       quantidade
     );
 
@@ -104,36 +160,56 @@ class MovimentacoesEstoqueService {
       throw new Error("A movimentação deixaria o estoque negativo.");
     }
 
-    return movimentacoesEstoqueRepository.criarMovimentacaoEAtualizarEstoque({
-      variacaoId,
-      tipo,
-      quantidade,
-      motivo: data.motivo,
-      novoEstoque,
+    return this.movimentacoesEstoqueRepository.executarTransacao(async (tx) => {
+      const movimentacao =
+        await this.movimentacoesEstoqueRepository.criarMovimentacaoEstoque(
+          {
+            variacaoId,
+            tipo,
+            quantidade,
+            motivo: data.motivo,
+          },
+          tx
+        );
+
+      const variacao =
+        await this.movimentacoesEstoqueRepository.atualizarEstoqueVariacao(
+          variacaoId,
+          novoEstoque,
+          tx
+        );
+
+      return {
+        movimentacao,
+        variacao,
+      };
     });
   }
 
   async listar() {
-    return movimentacoesEstoqueRepository.listarMovimentacoes();
+    return this.movimentacoesEstoqueRepository.listarMovimentacoes();
   }
 
   async listarPorVariacao(data: ListarMovimentacoesEstoquePorVariacaoDTO) {
-    const variacao = await movimentacoesEstoqueRepository.buscarVariacaoPorId(
-      data.variacaoId
-    );
+    const variacao =
+      await this.movimentacoesEstoqueRepository.buscarVariacaoPorId(
+        data.variacaoId
+      );
 
     if (!variacao) {
       throw new Error("Variação de produto não encontrada.");
     }
 
-    return movimentacoesEstoqueRepository.listarMovimentacoesPorVariacao(
+    return this.movimentacoesEstoqueRepository.listarMovimentacoesPorVariacao(
       data.variacaoId
     );
   }
 
   async buscarPorId(data: BuscarMovimentacaoEstoquePorIdDTO) {
     const movimentacao =
-      await movimentacoesEstoqueRepository.buscarMovimentacaoPorId(data.id);
+      await this.movimentacoesEstoqueRepository.buscarMovimentacaoPorId(
+        data.id
+      );
 
     if (!movimentacao) {
       throw new Error("Movimentação de estoque não encontrada.");
@@ -143,4 +219,16 @@ class MovimentacoesEstoqueService {
   }
 }
 
-export const movimentacoesEstoqueService = new MovimentacoesEstoqueService();
+const validadorTipoMovimentacaoEstoque =
+  new ValidadorTipoMovimentacaoEstoquePadrao();
+const validadorQuantidadeMovimentacaoEstoque =
+  new ValidadorQuantidadeMovimentacaoEstoquePadrao();
+const calculadorasMovimentacaoEstoque =
+  new CalculadorasMovimentacaoEstoquePadrao();
+
+export const movimentacoesEstoqueService = new MovimentacoesEstoqueService(
+  movimentacoesEstoqueRepository,
+  validadorTipoMovimentacaoEstoque,
+  validadorQuantidadeMovimentacaoEstoque,
+  calculadorasMovimentacaoEstoque
+);

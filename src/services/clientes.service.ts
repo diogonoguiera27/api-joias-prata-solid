@@ -6,7 +6,29 @@ import {
 } from "../models/cliente.model";
 import { clientesRepository } from "../repositories/clientes.repository";
 
-class ClientesService {
+type ClientesRepository = typeof clientesRepository;
+
+export interface DadosClienteValidados {
+  nome: string;
+  email: string;
+  telefone?: string | null;
+  documento?: string | null;
+}
+
+interface ClienteComVinculos {
+  carrinhos: unknown[];
+  pedidos: unknown[];
+}
+
+export interface IValidadorDadosCliente {
+  validar(data: CriarClienteDTO): DadosClienteValidados;
+}
+
+export interface IRegraRemocaoCliente {
+  validar(cliente: ClienteComVinculos): void;
+}
+
+export class ValidadorDadosClientePadrao implements IValidadorDadosCliente {
   private validarNome(nome: unknown) {
     if (!nome) {
       throw new Error("O nome do cliente é obrigatório.");
@@ -39,32 +61,52 @@ class ClientesService {
     return email.trim().toLowerCase();
   }
 
-  async criar(data: CriarClienteDTO) {
-    const nome = this.validarNome(data.nome);
-    const email = this.validarEmail(data.email);
+  validar(data: CriarClienteDTO) {
+    return {
+      nome: this.validarNome(data.nome),
+      email: this.validarEmail(data.email),
+      telefone: data.telefone,
+      documento: data.documento,
+    };
+  }
+}
 
-    const clienteExistente = await clientesRepository.buscarClientePorEmail(
-      email
-    );
+export class RegraRemocaoClienteSemVinculos implements IRegraRemocaoCliente {
+  validar(cliente: ClienteComVinculos) {
+    if (cliente.carrinhos.length > 0 || cliente.pedidos.length > 0) {
+      throw new Error(
+        "Não é possível remover cliente com carrinhos ou pedidos vinculados."
+      );
+    }
+  }
+}
+
+export class ClientesService {
+  constructor(
+    private clientesRepository: ClientesRepository,
+    private validadorDadosCliente: IValidadorDadosCliente,
+    private regraRemocaoCliente: IRegraRemocaoCliente
+  ) {}
+
+  async criar(data: CriarClienteDTO) {
+    const dadosCliente = this.validadorDadosCliente.validar(data);
+
+    const clienteExistente =
+      await this.clientesRepository.buscarClientePorEmail(dadosCliente.email);
 
     if (clienteExistente) {
       throw new Error("Já existe um cliente com esse email.");
     }
 
-    return clientesRepository.criarCliente({
-      nome,
-      email,
-      telefone: data.telefone,
-      documento: data.documento,
-    });
+    return this.clientesRepository.criarCliente(dadosCliente);
   }
 
   async listar() {
-    return clientesRepository.listarClientes();
+    return this.clientesRepository.listarClientes();
   }
 
   async buscarPorId(data: BuscarClientePorIdDTO) {
-    const cliente = await clientesRepository.buscarClienteDetalhadoPorId(
+    const cliente = await this.clientesRepository.buscarClienteDetalhadoPorId(
       data.id
     );
 
@@ -76,33 +118,26 @@ class ClientesService {
   }
 
   async atualizar(data: AtualizarClienteDTO) {
-    const cliente = await clientesRepository.buscarClientePorId(data.id);
+    const cliente = await this.clientesRepository.buscarClientePorId(data.id);
 
     if (!cliente) {
       throw new Error("Cliente não encontrado.");
     }
 
-    const nome = this.validarNome(data.nome);
-    const email = this.validarEmail(data.email);
+    const dadosCliente = this.validadorDadosCliente.validar(data);
 
-    const clienteComMesmoEmail = await clientesRepository.buscarClientePorEmail(
-      email
-    );
+    const clienteComMesmoEmail =
+      await this.clientesRepository.buscarClientePorEmail(dadosCliente.email);
 
     if (clienteComMesmoEmail && clienteComMesmoEmail.id !== data.id) {
       throw new Error("Já existe outro cliente com esse email.");
     }
 
-    return clientesRepository.atualizarCliente(data.id, {
-      nome,
-      email,
-      telefone: data.telefone,
-      documento: data.documento,
-    });
+    return this.clientesRepository.atualizarCliente(data.id, dadosCliente);
   }
 
   async remover(data: RemoverClienteDTO) {
-    const cliente = await clientesRepository.buscarClienteComVinculosPorId(
+    const cliente = await this.clientesRepository.buscarClienteComVinculosPorId(
       data.id
     );
 
@@ -110,13 +145,9 @@ class ClientesService {
       throw new Error("Cliente não encontrado.");
     }
 
-    if (cliente.carrinhos.length > 0 || cliente.pedidos.length > 0) {
-      throw new Error(
-        "Não é possível remover cliente com carrinhos ou pedidos vinculados."
-      );
-    }
+    this.regraRemocaoCliente.validar(cliente);
 
-    await clientesRepository.removerCliente(data.id);
+    await this.clientesRepository.removerCliente(data.id);
 
     return {
       message: "Cliente removido com sucesso.",
@@ -124,4 +155,11 @@ class ClientesService {
   }
 }
 
-export const clientesService = new ClientesService();
+const validadorDadosCliente = new ValidadorDadosClientePadrao();
+const regraRemocaoCliente = new RegraRemocaoClienteSemVinculos();
+
+export const clientesService = new ClientesService(
+  clientesRepository,
+  validadorDadosCliente,
+  regraRemocaoCliente
+);

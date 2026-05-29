@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma";
+import { IProdutosRepository } from "./interfaces/produtos-repository.interface";
 
-class ProdutosRepository {
+class ProdutosRepository implements IProdutosRepository {
   async criarProduto(data: {
     nome: string;
     slug: string;

@@ -1,7 +1,18 @@
 import { StatusCarrinho, StatusPedido } from "../generated/prisma/enums";
+import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 
 class PedidosRepository {
+  private getClient(tx?: Prisma.TransactionClient) {
+    return tx ?? prisma;
+  }
+
+  async executarTransacao<T>(
+    operacao: (tx: Prisma.TransactionClient) => Promise<T>
+  ) {
+    return prisma.$transaction(operacao);
+  }
+
   async buscarCarrinhoPorId(carrinhoId: string) {
     return prisma.carrinho.findUnique({
       where: {
@@ -26,69 +37,73 @@ class PedidosRepository {
     });
   }
 
-  async criarPedidoDoCarrinho(data: {
-    carrinho: Awaited<ReturnType<PedidosRepository["buscarCarrinhoPorId"]>>;
-    clienteId: string | null;
-    subtotal: number;
-    totalDesconto: number;
-    totalFrete: number;
-    total: number;
-  }) {
-    if (!data.carrinho) {
-      throw new Error("Carrinho não encontrado.");
-    }
-
-    const carrinho = data.carrinho;
-
-    return prisma.$transaction(async (tx) => {
-      const pedido = await tx.pedido.create({
-        data: {
-          clienteId: data.clienteId,
-          subtotal: data.subtotal,
-          totalDesconto: data.totalDesconto,
-          totalFrete: data.totalFrete,
-          total: data.total,
-          status: StatusPedido.PENDENTE_PAGAMENTO,
-          itens: {
-            create: carrinho.itens.map((item) => ({
-              produtoId: item.produtoId,
-              variacaoId: item.variacaoId,
-              nomeProduto: item.produto.nome,
-              quantidade: item.quantidade,
-              precoUnitario: item.precoUnitario,
-              subtotal: item.subtotal,
-            })),
+  async criarPedido(
+    data: {
+      clienteId: string | null;
+      subtotal: number;
+      totalDesconto: number;
+      totalFrete: number;
+      total: number;
+      status: StatusPedido;
+      itens: Array<{
+        produtoId: string;
+        variacaoId: string;
+        nomeProduto: string;
+        quantidade: number;
+        precoUnitario: unknown;
+        subtotal: unknown;
+      }>;
+    },
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).pedido.create({
+      data: {
+        clienteId: data.clienteId,
+        subtotal: data.subtotal,
+        totalDesconto: data.totalDesconto,
+        totalFrete: data.totalFrete,
+        total: data.total,
+        status: data.status,
+        itens: {
+          create: data.itens.map((item) => ({
+            produtoId: item.produtoId,
+            variacaoId: item.variacaoId,
+            nomeProduto: item.nomeProduto,
+            quantidade: item.quantidade,
+            precoUnitario: item.precoUnitario as any,
+            subtotal: item.subtotal as any,
+          })),
+        },
+      },
+      include: {
+        cliente: true,
+        itens: {
+          include: {
+            produto: true,
+            variacao: true,
           },
         },
-        include: {
-          cliente: true,
-          itens: {
-            include: {
-              produto: true,
-              variacao: true,
-            },
-          },
-          pagamento: true,
-        },
-      });
+        pagamento: true,
+      },
+    });
+  }
 
-      const carrinhoAtualizado = await tx.carrinho.update({
-        where: {
-          id: carrinho.id,
-        },
-        data: {
-          status: StatusCarrinho.CONVERTIDO_EM_PEDIDO,
-          clienteId: data.clienteId,
-        },
-        include: {
-          itens: true,
-        },
-      });
-
-      return {
-        pedido,
-        carrinho: carrinhoAtualizado,
-      };
+  async atualizarCarrinhoAposCriacaoPedido(
+    carrinhoId: string,
+    data: {
+      status: StatusCarrinho;
+      clienteId: string | null;
+    },
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).carrinho.update({
+      where: {
+        id: carrinhoId,
+      },
+      data,
+      include: {
+        itens: true,
+      },
     });
   }
 
@@ -147,8 +162,12 @@ class PedidosRepository {
     });
   }
 
-  async atualizarStatusPedido(id: string, status: StatusPedido) {
-    return prisma.pedido.update({
+  async atualizarStatusPedido(
+    id: string,
+    status: StatusPedido,
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).pedido.update({
       where: {
         id,
       },
@@ -163,22 +182,6 @@ class PedidosRepository {
             variacao: true,
           },
         },
-        pagamento: true,
-      },
-    });
-  }
-
-  async cancelarPedido(id: string) {
-    return prisma.pedido.update({
-      where: {
-        id,
-      },
-      data: {
-        status: StatusPedido.CANCELADO,
-      },
-      include: {
-        cliente: true,
-        itens: true,
         pagamento: true,
       },
     });

@@ -10,7 +10,78 @@ import {
 } from "../models/variacao-produto.model";
 import { variacoesProdutoRepository } from "../repositories/variacoes-produto.repository";
 
-class VariacoesProdutoService {
+type VariacoesProdutoRepository = typeof variacoesProdutoRepository;
+
+export interface DadosVariacaoProdutoValidados {
+  nome: string;
+  sku: string;
+  tamanho?: string | null;
+  cor?: string | null;
+  precoAdicional: number;
+  estoque: number;
+}
+
+export interface DadosAjusteEstoqueVariacao {
+  novoEstoque: number;
+  diferenca: number;
+  estoqueAtual: number;
+  motivo?: string | null;
+}
+
+export interface IValidadorDadosVariacaoProduto {
+  validar(data: CriarVariacaoProdutoDTO): DadosVariacaoProdutoValidados;
+}
+
+export interface IValidadorEstoqueVariacaoProduto {
+  validar(estoque: unknown, mensagemObrigatorio?: string): number;
+}
+
+export interface ICalculadoraAjusteEstoqueVariacaoProduto {
+  calcular(data: {
+    novoEstoque: number;
+    estoqueAtual: number;
+    motivo?: string | null;
+  }): DadosAjusteEstoqueVariacao;
+}
+
+export interface IRegraStatusVariacaoProduto {
+  validarAtivacao(variacao: { ativo: boolean }): void;
+  validarDesativacao(variacao: { ativo: boolean }): void;
+}
+
+export class ValidadorEstoqueVariacaoProdutoPadrao
+  implements IValidadorEstoqueVariacaoProduto
+{
+  validar(estoque: unknown, mensagemObrigatorio?: string) {
+    if (mensagemObrigatorio && (estoque === undefined || estoque === null)) {
+      throw new Error(mensagemObrigatorio);
+    }
+
+    const estoqueNumber = Number(estoque ?? 0);
+
+    if (Number.isNaN(estoqueNumber)) {
+      throw new Error("O estoque deve ser um número válido.");
+    }
+
+    if (!Number.isInteger(estoqueNumber)) {
+      throw new Error("O estoque deve ser um número inteiro.");
+    }
+
+    if (estoqueNumber < 0) {
+      throw new Error("O estoque não pode ser negativo.");
+    }
+
+    return estoqueNumber;
+  }
+}
+
+export class ValidadorDadosVariacaoProdutoPadrao
+  implements IValidadorDadosVariacaoProduto
+{
+  constructor(
+    private validadorEstoqueVariacaoProduto: IValidadorEstoqueVariacaoProduto
+  ) {}
+
   private validarNome(nome: unknown) {
     if (!nome) {
       throw new Error("O nome da variação é obrigatório.");
@@ -53,34 +124,66 @@ class VariacoesProdutoService {
     return precoAdicionalNumber;
   }
 
-  private validarEstoque(estoque: unknown, mensagemObrigatorio?: string) {
-    if (mensagemObrigatorio && (estoque === undefined || estoque === null)) {
-      throw new Error(mensagemObrigatorio);
-    }
-
-    const estoqueNumber = Number(estoque ?? 0);
-
-    if (Number.isNaN(estoqueNumber)) {
-      throw new Error("O estoque deve ser um número válido.");
-    }
-
-    if (!Number.isInteger(estoqueNumber)) {
-      throw new Error("O estoque deve ser um número inteiro.");
-    }
-
-    if (estoqueNumber < 0) {
-      throw new Error("O estoque não pode ser negativo.");
-    }
-
-    return estoqueNumber;
+  validar(data: CriarVariacaoProdutoDTO) {
+    return {
+      nome: this.validarNome(data.nome),
+      sku: this.validarSku(data.sku),
+      tamanho: data.tamanho,
+      cor: data.cor,
+      precoAdicional: this.validarPrecoAdicional(data.precoAdicional),
+      estoque: this.validadorEstoqueVariacaoProduto.validar(data.estoque),
+    };
   }
+}
+
+export class CalculadoraAjusteEstoqueVariacaoProdutoPadrao
+  implements ICalculadoraAjusteEstoqueVariacaoProduto
+{
+  calcular(data: {
+    novoEstoque: number;
+    estoqueAtual: number;
+    motivo?: string | null;
+  }) {
+    return {
+      novoEstoque: data.novoEstoque,
+      diferenca: data.novoEstoque - data.estoqueAtual,
+      estoqueAtual: data.estoqueAtual,
+      motivo: data.motivo,
+    };
+  }
+}
+
+export class RegraStatusVariacaoProdutoPadrao
+  implements IRegraStatusVariacaoProduto
+{
+  validarAtivacao(variacao: { ativo: boolean }) {
+    if (variacao.ativo) {
+      throw new Error("Variação já está ativa.");
+    }
+  }
+
+  validarDesativacao(variacao: { ativo: boolean }) {
+    if (!variacao.ativo) {
+      throw new Error("Variação já está desativada.");
+    }
+  }
+}
+
+export class VariacoesProdutoService {
+  constructor(
+    private variacoesProdutoRepository: VariacoesProdutoRepository,
+    private validadorDadosVariacaoProduto: IValidadorDadosVariacaoProduto,
+    private validadorEstoqueVariacaoProduto: IValidadorEstoqueVariacaoProduto,
+    private calculadoraAjusteEstoqueVariacaoProduto: ICalculadoraAjusteEstoqueVariacaoProduto,
+    private regraStatusVariacaoProduto: IRegraStatusVariacaoProduto
+  ) {}
 
   private async validarProduto(produtoId: unknown, mensagemInativo: string) {
     if (!produtoId) {
       throw new Error("O produto é obrigatório.");
     }
 
-    const produto = await variacoesProdutoRepository.buscarProdutoPorId(
+    const produto = await this.variacoesProdutoRepository.buscarProdutoPorId(
       String(produtoId)
     );
 
@@ -95,43 +198,34 @@ class VariacoesProdutoService {
     return String(produtoId);
   }
 
-  private montarDadosVariacao(data: CriarVariacaoProdutoDTO) {
-    return {
-      nome: this.validarNome(data.nome),
-      sku: this.validarSku(data.sku),
-      tamanho: data.tamanho,
-      cor: data.cor,
-      precoAdicional: this.validarPrecoAdicional(data.precoAdicional),
-      estoque: this.validarEstoque(data.estoque),
-    };
-  }
-
   async criar(data: CriarVariacaoProdutoDTO) {
     const produtoId = await this.validarProduto(
       data.produtoId,
       "Não é possível criar variação para um produto inativo."
     );
-    const dadosVariacao = this.montarDadosVariacao(data);
+    const dadosVariacao = this.validadorDadosVariacaoProduto.validar(data);
 
     const variacaoComMesmoSku =
-      await variacoesProdutoRepository.buscarVariacaoPorSku(dadosVariacao.sku);
+      await this.variacoesProdutoRepository.buscarVariacaoPorSku(
+        dadosVariacao.sku
+      );
 
     if (variacaoComMesmoSku) {
       throw new Error("Já existe uma variação com esse SKU.");
     }
 
-    return variacoesProdutoRepository.criarVariacao({
+    return this.variacoesProdutoRepository.criarVariacao({
       produtoId,
       ...dadosVariacao,
     });
   }
 
   async listar() {
-    return variacoesProdutoRepository.listarVariacoesAtivas();
+    return this.variacoesProdutoRepository.listarVariacoesAtivas();
   }
 
   async listarPorProduto(data: ListarVariacoesProdutoDTO) {
-    const produto = await variacoesProdutoRepository.buscarProdutoPorId(
+    const produto = await this.variacoesProdutoRepository.buscarProdutoPorId(
       data.produtoId
     );
 
@@ -139,13 +233,16 @@ class VariacoesProdutoService {
       throw new Error("Produto não encontrado.");
     }
 
-    return variacoesProdutoRepository.listarVariacoesPorProduto(data.produtoId);
+    return this.variacoesProdutoRepository.listarVariacoesPorProduto(
+      data.produtoId
+    );
   }
 
   async buscarPorId(data: BuscarVariacaoProdutoPorIdDTO) {
-    const variacao = await variacoesProdutoRepository.buscarVariacaoDetalhadaPorId(
-      data.id
-    );
+    const variacao =
+      await this.variacoesProdutoRepository.buscarVariacaoDetalhadaPorId(
+        data.id
+      );
 
     if (!variacao) {
       throw new Error("Variação de produto não encontrada.");
@@ -155,7 +252,7 @@ class VariacoesProdutoService {
   }
 
   async atualizar(data: AtualizarVariacaoProdutoDTO) {
-    const variacao = await variacoesProdutoRepository.buscarVariacaoPorId(
+    const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(
       data.id
     );
 
@@ -167,23 +264,25 @@ class VariacoesProdutoService {
       data.produtoId,
       "Não é possível vincular a variação a um produto inativo."
     );
-    const dadosVariacao = this.montarDadosVariacao(data);
+    const dadosVariacao = this.validadorDadosVariacaoProduto.validar(data);
 
     const variacaoComMesmoSku =
-      await variacoesProdutoRepository.buscarVariacaoPorSku(dadosVariacao.sku);
+      await this.variacoesProdutoRepository.buscarVariacaoPorSku(
+        dadosVariacao.sku
+      );
 
     if (variacaoComMesmoSku && variacaoComMesmoSku.id !== data.id) {
       throw new Error("Já existe outra variação com esse SKU.");
     }
 
-    return variacoesProdutoRepository.atualizarVariacao(data.id, {
+    return this.variacoesProdutoRepository.atualizarVariacao(data.id, {
       produtoId,
       ...dadosVariacao,
     });
   }
 
   async atualizarEstoque(data: AtualizarEstoqueVariacaoProdutoDTO) {
-    const variacao = await variacoesProdutoRepository.buscarVariacaoPorId(
+    const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(
       data.id
     );
 
@@ -191,22 +290,24 @@ class VariacoesProdutoService {
       throw new Error("Variação de produto não encontrada.");
     }
 
-    const novoEstoque = this.validarEstoque(
+    const novoEstoque = this.validadorEstoqueVariacaoProduto.validar(
       data.estoque,
       "O estoque é obrigatório."
     );
-    const diferenca = novoEstoque - variacao.estoque;
+    const dadosAjuste =
+      this.calculadoraAjusteEstoqueVariacaoProduto.calcular({
+        novoEstoque,
+        estoqueAtual: variacao.estoque,
+        motivo: data.motivo,
+      });
 
-    return variacoesProdutoRepository.atualizarEstoque(data.id, {
-      novoEstoque,
-      diferenca,
-      estoqueAtual: variacao.estoque,
-      motivo: data.motivo,
+    return this.variacoesProdutoRepository.atualizarEstoque(data.id, {
+      ...dadosAjuste,
     });
   }
 
   async desativar(data: DesativarVariacaoProdutoDTO) {
-    const variacao = await variacoesProdutoRepository.buscarVariacaoPorId(
+    const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(
       data.id
     );
 
@@ -214,15 +315,16 @@ class VariacoesProdutoService {
       throw new Error("Variação de produto não encontrada.");
     }
 
-    if (!variacao.ativo) {
-      throw new Error("Variação já está desativada.");
-    }
+    this.regraStatusVariacaoProduto.validarDesativacao(variacao);
 
-    return variacoesProdutoRepository.atualizarStatusVariacao(data.id, false);
+    return this.variacoesProdutoRepository.atualizarStatusVariacao(
+      data.id,
+      false
+    );
   }
 
   async ativar(data: AtivarVariacaoProdutoDTO) {
-    const variacao = await variacoesProdutoRepository.buscarVariacaoPorId(
+    const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(
       data.id
     );
 
@@ -230,15 +332,16 @@ class VariacoesProdutoService {
       throw new Error("Variação de produto não encontrada.");
     }
 
-    if (variacao.ativo) {
-      throw new Error("Variação já está ativa.");
-    }
+    this.regraStatusVariacaoProduto.validarAtivacao(variacao);
 
-    return variacoesProdutoRepository.atualizarStatusVariacao(data.id, true);
+    return this.variacoesProdutoRepository.atualizarStatusVariacao(
+      data.id,
+      true
+    );
   }
 
   async remover(data: RemoverVariacaoProdutoDTO) {
-    const variacao = await variacoesProdutoRepository.buscarVariacaoPorId(
+    const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(
       data.id
     );
 
@@ -247,7 +350,10 @@ class VariacoesProdutoService {
     }
 
     const variacaoRemovida =
-      await variacoesProdutoRepository.atualizarStatusVariacao(data.id, false);
+      await this.variacoesProdutoRepository.atualizarStatusVariacao(
+        data.id,
+        false
+      );
 
     return {
       message: "Variação removida com sucesso.",
@@ -256,4 +362,19 @@ class VariacoesProdutoService {
   }
 }
 
-export const variacoesProdutoService = new VariacoesProdutoService();
+const validadorEstoqueVariacaoProduto =
+  new ValidadorEstoqueVariacaoProdutoPadrao();
+const validadorDadosVariacaoProduto = new ValidadorDadosVariacaoProdutoPadrao(
+  validadorEstoqueVariacaoProduto
+);
+const calculadoraAjusteEstoqueVariacaoProduto =
+  new CalculadoraAjusteEstoqueVariacaoProdutoPadrao();
+const regraStatusVariacaoProduto = new RegraStatusVariacaoProdutoPadrao();
+
+export const variacoesProdutoService = new VariacoesProdutoService(
+  variacoesProdutoRepository,
+  validadorDadosVariacaoProduto,
+  validadorEstoqueVariacaoProduto,
+  calculadoraAjusteEstoqueVariacaoProduto,
+  regraStatusVariacaoProduto
+);

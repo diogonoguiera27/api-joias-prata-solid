@@ -1,7 +1,18 @@
 import { TipoMovimentacaoEstoque } from "../generated/prisma/enums";
+import { Prisma } from "../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 
 class MovimentacoesEstoqueRepository {
+  private getClient(tx?: Prisma.TransactionClient) {
+    return tx ?? prisma;
+  }
+
+  async executarTransacao<T>(
+    operacao: (tx: Prisma.TransactionClient) => Promise<T>
+  ) {
+    return prisma.$transaction(operacao);
+  }
+
   async buscarVariacaoPorId(variacaoId: string) {
     return prisma.variacaoProduto.findUnique({
       where: {
@@ -10,40 +21,36 @@ class MovimentacoesEstoqueRepository {
     });
   }
 
-  async criarMovimentacaoEAtualizarEstoque(data: {
-    variacaoId: string;
-    tipo: TipoMovimentacaoEstoque;
-    quantidade: number;
-    motivo?: string | null;
-    novoEstoque: number;
-  }) {
-    return prisma.$transaction(async (tx) => {
-      const movimentacao = await tx.movimentacaoEstoque.create({
-        data: {
-          variacaoId: data.variacaoId,
-          tipo: data.tipo,
-          quantidade: data.quantidade,
-          motivo: data.motivo,
-        },
-      });
+  async criarMovimentacaoEstoque(
+    data: {
+      variacaoId: string;
+      tipo: TipoMovimentacaoEstoque;
+      quantidade: number;
+      motivo?: string | null;
+    },
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).movimentacaoEstoque.create({
+      data,
+    });
+  }
 
-      const variacao = await tx.variacaoProduto.update({
-        where: {
-          id: data.variacaoId,
-        },
-        data: {
-          estoque: data.novoEstoque,
-        },
-        include: {
-          produto: true,
-          movimentacoesEstoque: true,
-        },
-      });
-
-      return {
-        movimentacao,
-        variacao,
-      };
+  async atualizarEstoqueVariacao(
+    variacaoId: string,
+    novoEstoque: number,
+    tx?: Prisma.TransactionClient
+  ) {
+    return this.getClient(tx).variacaoProduto.update({
+      where: {
+        id: variacaoId,
+      },
+      data: {
+        estoque: novoEstoque,
+      },
+      include: {
+        produto: true,
+        movimentacoesEstoque: true,
+      },
     });
   }
 
