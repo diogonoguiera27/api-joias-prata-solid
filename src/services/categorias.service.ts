@@ -9,12 +9,30 @@ import {
   RemoverCategoriaDTO,
 } from "../models/categoria.model";
 
-type CategoriasRepository = typeof categoriasRepository;
-
 export interface DadosCategoriaValidados {
   nome: string;
   slug: string;
   descricao?: string | null;
+}
+
+interface CategoriaRepository {
+  id: string;
+  ativo: boolean;
+}
+
+export interface ICategoriasRepository {
+  criarCategoria(data: DadosCategoriaValidados): Promise<CategoriaRepository>;
+  listarCategoriasAtivas(): Promise<CategoriaRepository[]>;
+  buscarCategoriaPorId(id: string): Promise<CategoriaRepository | null>;
+  buscarCategoriaPorSlug(slug: string): Promise<CategoriaRepository | null>;
+  atualizarCategoria(
+    id: string,
+    data: DadosCategoriaValidados
+  ): Promise<CategoriaRepository>;
+  atualizarStatusCategoria(
+    id: string,
+    ativo: boolean
+  ): Promise<CategoriaRepository>;
 }
 
 export interface IGeradorSlugCategoria {
@@ -90,7 +108,7 @@ export class RegraStatusCategoriaPadrao implements IRegraStatusCategoria {
 
 export class CategoriasService {
   constructor(
-    private categoriasRepository: CategoriasRepository,
+    private categoriasRepository: ICategoriasRepository,
     private validadorDadosCategoria: IValidadorDadosCategoria,
     private regraStatusCategoria: IRegraStatusCategoria
   ) {}

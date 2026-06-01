@@ -9,8 +9,6 @@ import {
   AbandonarCarrinhoDTO,
 } from "../models/carrinho.model";
 
-type CarrinhosRepository = typeof carrinhosRepository;
-
 export interface TotaisItemCarrinho {
   precoUnitario: number;
   subtotal: number;
@@ -30,6 +28,7 @@ interface VariacaoCarrinho {
 }
 
 interface ItemCarrinhoComProdutoVariacao {
+  id?: string;
   carrinhoId: string;
   produto: {
     precoFinal: unknown;
@@ -38,6 +37,55 @@ interface ItemCarrinhoComProdutoVariacao {
     estoque: number;
     precoAdicional: unknown;
   };
+}
+
+interface CarrinhoSimplesRepository {
+  status: StatusCarrinho;
+}
+
+interface ItemExistenteCarrinhoRepository {
+  id: string;
+  quantidade: number;
+}
+
+export interface ICarrinhosRepository {
+  buscarClientePorId(clienteId: string): Promise<unknown | null>;
+  criarCarrinho(clienteId?: string | null): Promise<unknown>;
+  listarCarrinhos(): Promise<unknown[]>;
+  buscarCarrinhoPorId(id: string): Promise<unknown | null>;
+  buscarCarrinhoSimplesPorId(
+    id: string
+  ): Promise<CarrinhoSimplesRepository | null>;
+  buscarProdutoPorId(produtoId: string): Promise<ProdutoCarrinho | null>;
+  buscarVariacaoPorId(
+    variacaoId: string
+  ): Promise<VariacaoCarrinho | null>;
+  buscarItemExistente(
+    carrinhoId: string,
+    produtoId: string,
+    variacaoId: string
+  ): Promise<ItemExistenteCarrinhoRepository | null>;
+  atualizarItemCarrinho(
+    itemId: string,
+    data: TotaisItemCarrinho & { quantidade: number }
+  ): Promise<unknown>;
+  criarItemCarrinho(
+    data: TotaisItemCarrinho & {
+      carrinhoId: string;
+      produtoId: string;
+      variacaoId: string;
+      quantidade: number;
+    }
+  ): Promise<unknown>;
+  buscarItemPorId(
+    itemId: string
+  ): Promise<ItemCarrinhoComProdutoVariacao | null>;
+  removerItemCarrinho(itemId: string): Promise<unknown>;
+  limparItensDoCarrinho(carrinhoId: string): Promise<unknown>;
+  atualizarStatusCarrinho(
+    carrinhoId: string,
+    status: StatusCarrinho
+  ): Promise<unknown>;
 }
 
 export interface ICalculadoraTotaisItemCarrinho {
@@ -66,6 +114,13 @@ export interface IRegraItemCarrinho {
   ): asserts item is ItemCarrinhoComProdutoVariacao;
 }
 
+export interface ICalculadoraQuantidadeFinalCarrinho {
+  calcular(
+    itemExistente: ItemExistenteCarrinhoRepository | null,
+    quantidade: number
+  ): number;
+}
+
 export class CalculadoraTotaisItemCarrinhoPadrao
   implements ICalculadoraTotaisItemCarrinho
 {
@@ -83,6 +138,17 @@ export class CalculadoraTotaisItemCarrinhoPadrao
       precoUnitario: Number(precoUnitario.toFixed(2)),
       subtotal: Number(subtotal.toFixed(2)),
     };
+  }
+}
+
+export class CalculadoraQuantidadeFinalCarrinhoPadrao
+  implements ICalculadoraQuantidadeFinalCarrinho
+{
+  calcular(
+    itemExistente: ItemExistenteCarrinhoRepository | null,
+    quantidade: number
+  ) {
+    return itemExistente ? itemExistente.quantidade + quantidade : quantidade;
   }
 }
 
@@ -150,8 +216,9 @@ export class RegraItemCarrinhoPadrao implements IRegraItemCarrinho {
 
 export class CarrinhosService {
   constructor(
-    private carrinhosRepository: CarrinhosRepository,
+    private carrinhosRepository: ICarrinhosRepository,
     private calculadoraTotaisItemCarrinho: ICalculadoraTotaisItemCarrinho,
+    private calculadoraQuantidadeFinalCarrinho: ICalculadoraQuantidadeFinalCarrinho,
     private validadorQuantidadeCarrinho: IValidadorQuantidadeCarrinho,
     private regraCarrinhoAtivo: IRegraCarrinhoAtivo,
     private regraItemCarrinho: IRegraItemCarrinho
@@ -248,9 +315,10 @@ export class CarrinhosService {
       String(variacaoId)
     );
 
-    const quantidadeFinal = itemExistente
-      ? itemExistente.quantidade + quantidadeNumber
-      : quantidadeNumber;
+    const quantidadeFinal = this.calculadoraQuantidadeFinalCarrinho.calcular(
+      itemExistente,
+      quantidadeNumber
+    );
 
     this.regraItemCarrinho.validarEstoque(quantidadeFinal, variacao.estoque);
 
@@ -396,6 +464,8 @@ export class CarrinhosService {
 }
 
 const calculadoraTotaisItemCarrinho = new CalculadoraTotaisItemCarrinhoPadrao();
+const calculadoraQuantidadeFinalCarrinho =
+  new CalculadoraQuantidadeFinalCarrinhoPadrao();
 const validadorQuantidadeCarrinho = new ValidadorQuantidadeCarrinhoPadrao();
 const regraCarrinhoAtivo = new RegraCarrinhoAtivoPadrao();
 const regraItemCarrinho = new RegraItemCarrinhoPadrao();
@@ -403,6 +473,7 @@ const regraItemCarrinho = new RegraItemCarrinhoPadrao();
 export const carrinhosService = new CarrinhosService(
   carrinhosRepository,
   calculadoraTotaisItemCarrinho,
+  calculadoraQuantidadeFinalCarrinho,
   validadorQuantidadeCarrinho,
   regraCarrinhoAtivo,
   regraItemCarrinho

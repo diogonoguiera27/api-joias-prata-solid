@@ -22,25 +22,54 @@ export interface AtualizarProdutoRepositoryDTO {
   categoriaId: string;
 }
 
+export interface CategoriaProdutoRepository {
+  id: string;
+  ativo: boolean;
+}
+
+export interface ProdutoSimplesRepository {
+  id: string;
+  ativo: boolean;
+}
+
+export interface ProdutoDetalhadoRepository extends ProdutoSimplesRepository {
+  categoria: unknown;
+  variacoes: unknown[];
+  imagens: unknown[];
+}
+
 export interface IProdutosRepository {
-  criarProduto(data: CriarProdutoRepositoryDTO): Promise<any>;
+  criarProduto(
+    data: CriarProdutoRepositoryDTO
+  ): Promise<ProdutoDetalhadoRepository>;
 
-  listarProdutosAtivos(): Promise<any[]>;
+  listarProdutosAtivos(): Promise<ProdutoDetalhadoRepository[]>;
 
-  buscarProdutoPorSlug(slug: string): Promise<any | null>;
+  buscarProdutoPorSlug(
+    slug: string
+  ): Promise<ProdutoDetalhadoRepository | null>;
 
-  buscarProdutoSimplesPorSlug(slug: string): Promise<any | null>;
+  buscarProdutoSimplesPorSlug(
+    slug: string
+  ): Promise<ProdutoSimplesRepository | null>;
 
-  buscarProdutoPorId(id: string): Promise<any | null>;
+  buscarProdutoPorId(id: string): Promise<ProdutoDetalhadoRepository | null>;
 
-  buscarProdutoSimplesPorId(id: string): Promise<any | null>;
+  buscarProdutoSimplesPorId(
+    id: string
+  ): Promise<ProdutoSimplesRepository | null>;
 
-  buscarCategoriaPorId(categoriaId: string): Promise<any | null>;
+  buscarCategoriaPorId(
+    categoriaId: string
+  ): Promise<CategoriaProdutoRepository | null>;
 
   atualizarProduto(
     id: string,
     data: AtualizarProdutoRepositoryDTO
-  ): Promise<any>;
+  ): Promise<ProdutoDetalhadoRepository>;
 
-  atualizarStatusProduto(id: string, ativo: boolean): Promise<any>;
+  atualizarStatusProduto(
+    id: string,
+    ativo: boolean
+  ): Promise<ProdutoSimplesRepository>;
 }

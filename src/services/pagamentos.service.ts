@@ -14,9 +14,8 @@ import {
 } from "../models/pagamento.model";
 import { pagamentosRepository } from "../repositories/pagamentos.repository";
 
-type PagamentosRepository = typeof pagamentosRepository;
-
 interface PagamentoComPedido {
+  pedidoId: string;
   status: StatusPagamento;
   pedido: {
     status: StatusPedido;
@@ -26,6 +25,7 @@ interface PagamentoComPedido {
 interface PagamentoParaAprovacao extends PagamentoComPedido {
   pedido: PagamentoComPedido["pedido"] & {
     itens: Array<{
+      variacaoId: string;
       quantidade: number;
       variacao: {
         estoque: number;
@@ -35,6 +35,93 @@ interface PagamentoParaAprovacao extends PagamentoComPedido {
       };
     }>;
   };
+}
+
+interface PagamentoParaReembolso extends PagamentoComPedido {
+  pedido: PagamentoComPedido["pedido"] & {
+    itens: Array<{
+      variacaoId: string;
+      quantidade: number;
+      variacao: {
+        estoque: number;
+      };
+    }>;
+  };
+}
+
+interface PedidoParaPagamento {
+  status: StatusPedido;
+  total: unknown;
+  pagamento?: unknown | null;
+}
+
+export interface IPagamentosRepository {
+  executarTransacao<T>(operacao: (tx: any) => Promise<T>): Promise<T>;
+  buscarPedidoPorId(pedidoId: string): Promise<PedidoParaPagamento | null>;
+  criarPagamento(data: {
+    pedidoId: string;
+    metodo: MetodoPagamento;
+    valor: unknown;
+  }): Promise<unknown>;
+  listarPagamentos(): Promise<unknown[]>;
+  buscarPagamentoPorId(id: string): Promise<unknown | null>;
+  buscarPagamentoParaAprovacao(
+    id: string
+  ): Promise<PagamentoParaAprovacao | null>;
+  buscarPagamentoComPedido(id: string): Promise<PagamentoComPedido | null>;
+  buscarPagamentoSimplesPorId(
+    id: string
+  ): Promise<{ status: StatusPagamento } | null>;
+  buscarPagamentoParaReembolso(
+    id: string
+  ): Promise<PagamentoParaReembolso | null>;
+  marcarPagamentoComoAprovado(id: string, tx?: any): Promise<unknown>;
+  atualizarStatusPagamento(
+    id: string,
+    status: StatusPagamento,
+    includePedido?: boolean
+  ): Promise<unknown>;
+  marcarPagamentoComoReembolsado(id: string, tx?: any): Promise<unknown>;
+  atualizarStatusPedido(
+    id: string,
+    status: StatusPedido,
+    tx?: any
+  ): Promise<unknown>;
+  atualizarEstoqueVariacao(
+    id: string,
+    estoque: number,
+    tx?: any
+  ): Promise<unknown>;
+  criarMovimentacaoEstoque(
+    data: {
+      variacaoId: string;
+      tipo: TipoMovimentacaoEstoque;
+      quantidade: number;
+      motivo: string;
+    },
+    tx?: any
+  ): Promise<unknown>;
+}
+
+interface ItemEstoquePagamento {
+  variacaoId: string;
+  quantidade: number;
+  variacao: {
+    estoque: number;
+  };
+}
+
+export interface IProcessadorEstoquePagamento {
+  baixarEstoque(
+    itens: ItemEstoquePagamento[],
+    pedidoId: string,
+    tx?: any
+  ): Promise<void>;
+  devolverEstoque(
+    itens: ItemEstoquePagamento[],
+    pedidoId: string,
+    tx?: any
+  ): Promise<void>;
 }
 
 export interface IValidadorMetodoPagamento {
@@ -148,14 +235,69 @@ export class RegraReembolsoPagamentoPadrao implements IRegraReembolsoPagamento {
   }
 }
 
+export class ProcessadorEstoquePagamentoPadrao
+  implements IProcessadorEstoquePagamento
+{
+  constructor(private pagamentosRepository: IPagamentosRepository) {}
+
+  async baixarEstoque(
+    itens: ItemEstoquePagamento[],
+    pedidoId: string,
+    tx?: any
+  ) {
+    for (const item of itens) {
+      await this.pagamentosRepository.atualizarEstoqueVariacao(
+        item.variacaoId,
+        item.variacao.estoque - item.quantidade,
+        tx
+      );
+
+      await this.pagamentosRepository.criarMovimentacaoEstoque(
+        {
+          variacaoId: item.variacaoId,
+          tipo: TipoMovimentacaoEstoque.VENDA,
+          quantidade: item.quantidade,
+          motivo: `Baixa automática após pagamento aprovado do pedido ${pedidoId}.`,
+        },
+        tx
+      );
+    }
+  }
+
+  async devolverEstoque(
+    itens: ItemEstoquePagamento[],
+    pedidoId: string,
+    tx?: any
+  ) {
+    for (const item of itens) {
+      await this.pagamentosRepository.atualizarEstoqueVariacao(
+        item.variacaoId,
+        item.variacao.estoque + item.quantidade,
+        tx
+      );
+
+      await this.pagamentosRepository.criarMovimentacaoEstoque(
+        {
+          variacaoId: item.variacaoId,
+          tipo: TipoMovimentacaoEstoque.DEVOLUCAO_CANCELAMENTO,
+          quantidade: item.quantidade,
+          motivo: `Devolução automática após reembolso do pedido ${pedidoId}.`,
+        },
+        tx
+      );
+    }
+  }
+}
+
 export class PagamentosService {
   constructor(
-    private pagamentosRepository: PagamentosRepository,
+    private pagamentosRepository: IPagamentosRepository,
     private validadorMetodoPagamento: IValidadorMetodoPagamento,
     private regraAprovacaoPagamento: IRegraAprovacaoPagamento,
     private regraRecusaPagamento: IRegraRecusaPagamento,
     private regraCancelamentoPagamento: IRegraCancelamentoPagamento,
-    private regraReembolsoPagamento: IRegraReembolsoPagamento
+    private regraReembolsoPagamento: IRegraReembolsoPagamento,
+    private processadorEstoquePagamento: IProcessadorEstoquePagamento
   ) {}
 
   private validarMetodoPagamento(metodo: unknown) {
@@ -234,23 +376,11 @@ export class PagamentosService {
           tx
         );
 
-      for (const item of pagamento.pedido.itens) {
-        await this.pagamentosRepository.atualizarEstoqueVariacao(
-          item.variacaoId,
-          item.variacao.estoque - item.quantidade,
-          tx
-        );
-
-        await this.pagamentosRepository.criarMovimentacaoEstoque(
-          {
-            variacaoId: item.variacaoId,
-            tipo: TipoMovimentacaoEstoque.VENDA,
-            quantidade: item.quantidade,
-            motivo: `Baixa automática após pagamento aprovado do pedido ${pagamento.pedidoId}.`,
-          },
-          tx
-        );
-      }
+      await this.processadorEstoquePagamento.baixarEstoque(
+        pagamento.pedido.itens,
+        pagamento.pedidoId,
+        tx
+      );
 
       return {
         pagamento: pagamentoAprovado,
@@ -315,23 +445,11 @@ export class PagamentosService {
           tx
         );
 
-      for (const item of pagamento.pedido.itens) {
-        await this.pagamentosRepository.atualizarEstoqueVariacao(
-          item.variacaoId,
-          item.variacao.estoque + item.quantidade,
-          tx
-        );
-
-        await this.pagamentosRepository.criarMovimentacaoEstoque(
-          {
-            variacaoId: item.variacaoId,
-            tipo: TipoMovimentacaoEstoque.DEVOLUCAO_CANCELAMENTO,
-            quantidade: item.quantidade,
-            motivo: `Devolução automática após reembolso do pedido ${pagamento.pedidoId}.`,
-          },
-          tx
-        );
-      }
+      await this.processadorEstoquePagamento.devolverEstoque(
+        pagamento.pedido.itens,
+        pagamento.pedidoId,
+        tx
+      );
 
       return {
         pagamento: pagamentoReembolsado,
@@ -346,6 +464,9 @@ const regraAprovacaoPagamento = new RegraAprovacaoPagamentoPadrao();
 const regraRecusaPagamento = new RegraRecusaPagamentoPadrao();
 const regraCancelamentoPagamento = new RegraCancelamentoPagamentoPadrao();
 const regraReembolsoPagamento = new RegraReembolsoPagamentoPadrao();
+const processadorEstoquePagamento = new ProcessadorEstoquePagamentoPadrao(
+  pagamentosRepository
+);
 
 export const pagamentosService = new PagamentosService(
   pagamentosRepository,
@@ -353,5 +474,6 @@ export const pagamentosService = new PagamentosService(
   regraAprovacaoPagamento,
   regraRecusaPagamento,
   regraCancelamentoPagamento,
-  regraReembolsoPagamento
+  regraReembolsoPagamento,
+  processadorEstoquePagamento
 );

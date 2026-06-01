@@ -6,7 +6,34 @@ import {
 } from "../models/movimentacao-estoque.model";
 import { movimentacoesEstoqueRepository } from "../repositories/movimentacoes-estoque.repository";
 
-type MovimentacoesEstoqueRepository = typeof movimentacoesEstoqueRepository;
+interface VariacaoMovimentacaoEstoqueRepository {
+  ativo: boolean;
+  estoque: number;
+}
+
+export interface IMovimentacoesEstoqueRepository {
+  executarTransacao<T>(operacao: (tx: any) => Promise<T>): Promise<T>;
+  buscarVariacaoPorId(
+    variacaoId: string
+  ): Promise<VariacaoMovimentacaoEstoqueRepository | null>;
+  criarMovimentacaoEstoque(
+    data: {
+      variacaoId: string;
+      tipo: TipoMovimentacaoEstoque;
+      quantidade: number;
+      motivo?: string | null;
+    },
+    tx?: any
+  ): Promise<unknown>;
+  atualizarEstoqueVariacao(
+    variacaoId: string,
+    novoEstoque: number,
+    tx?: any
+  ): Promise<unknown>;
+  listarMovimentacoes(): Promise<unknown[]>;
+  listarMovimentacoesPorVariacao(variacaoId: string): Promise<unknown[]>;
+  buscarMovimentacaoPorId(id: string): Promise<unknown | null>;
+}
 
 export interface IValidadorTipoMovimentacaoEstoque {
   validar(tipo: unknown): TipoMovimentacaoEstoque;
@@ -119,7 +146,7 @@ export class CalculadorasMovimentacaoEstoquePadrao
 
 export class MovimentacoesEstoqueService {
   constructor(
-    private movimentacoesEstoqueRepository: MovimentacoesEstoqueRepository,
+    private movimentacoesEstoqueRepository: IMovimentacoesEstoqueRepository,
     private validadorTipoMovimentacaoEstoque: IValidadorTipoMovimentacaoEstoque,
     private validadorQuantidadeMovimentacaoEstoque: IValidadorQuantidadeMovimentacaoEstoque,
     private calculadorasMovimentacaoEstoque: ICalculadorasMovimentacaoEstoque

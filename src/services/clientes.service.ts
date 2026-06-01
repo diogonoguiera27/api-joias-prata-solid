@@ -6,8 +6,6 @@ import {
 } from "../models/cliente.model";
 import { clientesRepository } from "../repositories/clientes.repository";
 
-type ClientesRepository = typeof clientesRepository;
-
 export interface DadosClienteValidados {
   nome: string;
   email: string;
@@ -18,6 +16,26 @@ export interface DadosClienteValidados {
 interface ClienteComVinculos {
   carrinhos: unknown[];
   pedidos: unknown[];
+}
+
+interface ClienteRepository {
+  id: string;
+}
+
+export interface IClientesRepository {
+  criarCliente(data: DadosClienteValidados): Promise<ClienteComVinculos>;
+  listarClientes(): Promise<ClienteComVinculos[]>;
+  buscarClientePorId(id: string): Promise<ClienteRepository | null>;
+  buscarClienteDetalhadoPorId(id: string): Promise<ClienteComVinculos | null>;
+  buscarClientePorEmail(email: string): Promise<ClienteRepository | null>;
+  buscarClienteComVinculosPorId(
+    id: string
+  ): Promise<ClienteComVinculos | null>;
+  atualizarCliente(
+    id: string,
+    data: DadosClienteValidados
+  ): Promise<ClienteComVinculos>;
+  removerCliente(id: string): Promise<unknown>;
 }
 
 export interface IValidadorDadosCliente {
@@ -83,7 +101,7 @@ export class RegraRemocaoClienteSemVinculos implements IRegraRemocaoCliente {
 
 export class ClientesService {
   constructor(
-    private clientesRepository: ClientesRepository,
+    private clientesRepository: IClientesRepository,
     private validadorDadosCliente: IValidadorDadosCliente,
     private regraRemocaoCliente: IRegraRemocaoCliente
   ) {}

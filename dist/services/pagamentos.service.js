@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pagamentosService = exports.PagamentosService = exports.RegraReembolsoPagamentoPadrao = exports.RegraCancelamentoPagamentoPadrao = exports.RegraRecusaPagamentoPadrao = exports.RegraAprovacaoPagamentoPadrao = exports.ValidadorMetodoPagamentoPadrao = void 0;
+exports.pagamentosService = exports.PagamentosService = exports.ProcessadorEstoquePagamentoPadrao = exports.RegraReembolsoPagamentoPadrao = exports.RegraCancelamentoPagamentoPadrao = exports.RegraRecusaPagamentoPadrao = exports.RegraAprovacaoPagamentoPadrao = exports.ValidadorMetodoPagamentoPadrao = void 0;
 const enums_1 = require("../generated/prisma/enums");
 const pagamentos_repository_1 = require("../repositories/pagamentos.repository");
 class ValidadorMetodoPagamentoPadrao {
@@ -72,14 +72,43 @@ class RegraReembolsoPagamentoPadrao {
     }
 }
 exports.RegraReembolsoPagamentoPadrao = RegraReembolsoPagamentoPadrao;
+class ProcessadorEstoquePagamentoPadrao {
+    constructor(pagamentosRepository) {
+        this.pagamentosRepository = pagamentosRepository;
+    }
+    async baixarEstoque(itens, pedidoId, tx) {
+        for (const item of itens) {
+            await this.pagamentosRepository.atualizarEstoqueVariacao(item.variacaoId, item.variacao.estoque - item.quantidade, tx);
+            await this.pagamentosRepository.criarMovimentacaoEstoque({
+                variacaoId: item.variacaoId,
+                tipo: enums_1.TipoMovimentacaoEstoque.VENDA,
+                quantidade: item.quantidade,
+                motivo: `Baixa automática após pagamento aprovado do pedido ${pedidoId}.`,
+            }, tx);
+        }
+    }
+    async devolverEstoque(itens, pedidoId, tx) {
+        for (const item of itens) {
+            await this.pagamentosRepository.atualizarEstoqueVariacao(item.variacaoId, item.variacao.estoque + item.quantidade, tx);
+            await this.pagamentosRepository.criarMovimentacaoEstoque({
+                variacaoId: item.variacaoId,
+                tipo: enums_1.TipoMovimentacaoEstoque.DEVOLUCAO_CANCELAMENTO,
+                quantidade: item.quantidade,
+                motivo: `Devolução automática após reembolso do pedido ${pedidoId}.`,
+            }, tx);
+        }
+    }
+}
+exports.ProcessadorEstoquePagamentoPadrao = ProcessadorEstoquePagamentoPadrao;
 class PagamentosService {
-    constructor(pagamentosRepository, validadorMetodoPagamento, regraAprovacaoPagamento, regraRecusaPagamento, regraCancelamentoPagamento, regraReembolsoPagamento) {
+    constructor(pagamentosRepository, validadorMetodoPagamento, regraAprovacaoPagamento, regraRecusaPagamento, regraCancelamentoPagamento, regraReembolsoPagamento, processadorEstoquePagamento) {
         this.pagamentosRepository = pagamentosRepository;
         this.validadorMetodoPagamento = validadorMetodoPagamento;
         this.regraAprovacaoPagamento = regraAprovacaoPagamento;
         this.regraRecusaPagamento = regraRecusaPagamento;
         this.regraCancelamentoPagamento = regraCancelamentoPagamento;
         this.regraReembolsoPagamento = regraReembolsoPagamento;
+        this.processadorEstoquePagamento = processadorEstoquePagamento;
     }
     validarMetodoPagamento(metodo) {
         return this.validadorMetodoPagamento.validar(metodo);
@@ -128,15 +157,7 @@ class PagamentosService {
         return this.pagamentosRepository.executarTransacao(async (tx) => {
             const pagamentoAprovado = await this.pagamentosRepository.marcarPagamentoComoAprovado(data.id, tx);
             const pedidoAtualizado = await this.pagamentosRepository.atualizarStatusPedido(pagamento.pedidoId, enums_1.StatusPedido.PAGO, tx);
-            for (const item of pagamento.pedido.itens) {
-                await this.pagamentosRepository.atualizarEstoqueVariacao(item.variacaoId, item.variacao.estoque - item.quantidade, tx);
-                await this.pagamentosRepository.criarMovimentacaoEstoque({
-                    variacaoId: item.variacaoId,
-                    tipo: enums_1.TipoMovimentacaoEstoque.VENDA,
-                    quantidade: item.quantidade,
-                    motivo: `Baixa automática após pagamento aprovado do pedido ${pagamento.pedidoId}.`,
-                }, tx);
-            }
+            await this.processadorEstoquePagamento.baixarEstoque(pagamento.pedido.itens, pagamento.pedidoId, tx);
             return {
                 pagamento: pagamentoAprovado,
                 pedido: pedidoAtualizado,
@@ -168,15 +189,7 @@ class PagamentosService {
         return this.pagamentosRepository.executarTransacao(async (tx) => {
             const pagamentoReembolsado = await this.pagamentosRepository.marcarPagamentoComoReembolsado(data.id, tx);
             const pedidoReembolsado = await this.pagamentosRepository.atualizarStatusPedido(pagamento.pedidoId, enums_1.StatusPedido.REEMBOLSADO, tx);
-            for (const item of pagamento.pedido.itens) {
-                await this.pagamentosRepository.atualizarEstoqueVariacao(item.variacaoId, item.variacao.estoque + item.quantidade, tx);
-                await this.pagamentosRepository.criarMovimentacaoEstoque({
-                    variacaoId: item.variacaoId,
-                    tipo: enums_1.TipoMovimentacaoEstoque.DEVOLUCAO_CANCELAMENTO,
-                    quantidade: item.quantidade,
-                    motivo: `Devolução automática após reembolso do pedido ${pagamento.pedidoId}.`,
-                }, tx);
-            }
+            await this.processadorEstoquePagamento.devolverEstoque(pagamento.pedido.itens, pagamento.pedidoId, tx);
             return {
                 pagamento: pagamentoReembolsado,
                 pedido: pedidoReembolsado,
@@ -190,4 +203,5 @@ const regraAprovacaoPagamento = new RegraAprovacaoPagamentoPadrao();
 const regraRecusaPagamento = new RegraRecusaPagamentoPadrao();
 const regraCancelamentoPagamento = new RegraCancelamentoPagamentoPadrao();
 const regraReembolsoPagamento = new RegraReembolsoPagamentoPadrao();
-exports.pagamentosService = new PagamentosService(pagamentos_repository_1.pagamentosRepository, validadorMetodoPagamento, regraAprovacaoPagamento, regraRecusaPagamento, regraCancelamentoPagamento, regraReembolsoPagamento);
+const processadorEstoquePagamento = new ProcessadorEstoquePagamentoPadrao(pagamentos_repository_1.pagamentosRepository);
+exports.pagamentosService = new PagamentosService(pagamentos_repository_1.pagamentosRepository, validadorMetodoPagamento, regraAprovacaoPagamento, regraRecusaPagamento, regraCancelamentoPagamento, regraReembolsoPagamento, processadorEstoquePagamento);

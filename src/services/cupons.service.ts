@@ -11,8 +11,6 @@ import {
 } from "../models/cupom.model";
 import { cuponsRepository } from "../repositories/cupons.repository";
 
-type CuponsRepository = typeof cuponsRepository;
-
 export interface DadosCupomValidados {
   codigo: string;
   tipoDesconto: TipoDescontoCupom;
@@ -33,8 +31,24 @@ interface CupomAplicavel {
 }
 
 interface CupomComDesconto extends CupomAplicavel {
+  id: string;
   tipoDesconto: TipoDescontoCupom;
   valorDesconto: unknown;
+}
+
+export interface ICuponsRepository {
+  criarCupom(data: DadosCupomValidados): Promise<CupomComDesconto>;
+  listarCupons(): Promise<CupomComDesconto[]>;
+  buscarCupomPorId(id: string): Promise<CupomComDesconto | null>;
+  buscarCupomPorCodigo(codigo: string): Promise<CupomComDesconto | null>;
+  atualizarCupom(
+    id: string,
+    data: DadosCupomValidados
+  ): Promise<CupomComDesconto>;
+  atualizarStatusCupom(
+    id: string,
+    ativo: boolean
+  ): Promise<CupomComDesconto>;
 }
 
 interface ValoresAplicacaoCupom {
@@ -339,7 +353,7 @@ export class RegraStatusCupomPadrao implements IRegraStatusCupom {
 
 export class CuponsService {
   constructor(
-    private cuponsRepository: CuponsRepository,
+    private cuponsRepository: ICuponsRepository,
     private normalizadorCodigoCupom: INormalizadorCodigoCupom,
     private validadorDadosCupom: IValidadorDadosCupom,
     private validadorValoresAplicacaoCupom: IValidadorValoresAplicacaoCupom,

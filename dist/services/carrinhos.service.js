@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.carrinhosService = exports.CarrinhosService = exports.RegraItemCarrinhoPadrao = exports.RegraCarrinhoAtivoPadrao = exports.ValidadorQuantidadeCarrinhoPadrao = exports.CalculadoraTotaisItemCarrinhoPadrao = void 0;
+exports.carrinhosService = exports.CarrinhosService = exports.RegraItemCarrinhoPadrao = exports.RegraCarrinhoAtivoPadrao = exports.ValidadorQuantidadeCarrinhoPadrao = exports.CalculadoraQuantidadeFinalCarrinhoPadrao = exports.CalculadoraTotaisItemCarrinhoPadrao = void 0;
 const enums_1 = require("../generated/prisma/enums");
 const carrinhos_repository_1 = require("../repositories/carrinhos.repository");
 class CalculadoraTotaisItemCarrinhoPadrao {
@@ -16,6 +16,12 @@ class CalculadoraTotaisItemCarrinhoPadrao {
     }
 }
 exports.CalculadoraTotaisItemCarrinhoPadrao = CalculadoraTotaisItemCarrinhoPadrao;
+class CalculadoraQuantidadeFinalCarrinhoPadrao {
+    calcular(itemExistente, quantidade) {
+        return itemExistente ? itemExistente.quantidade + quantidade : quantidade;
+    }
+}
+exports.CalculadoraQuantidadeFinalCarrinhoPadrao = CalculadoraQuantidadeFinalCarrinhoPadrao;
 class ValidadorQuantidadeCarrinhoPadrao {
     validar(quantidade) {
         const quantidadeNumber = Number(quantidade);
@@ -64,9 +70,10 @@ class RegraItemCarrinhoPadrao {
 }
 exports.RegraItemCarrinhoPadrao = RegraItemCarrinhoPadrao;
 class CarrinhosService {
-    constructor(carrinhosRepository, calculadoraTotaisItemCarrinho, validadorQuantidadeCarrinho, regraCarrinhoAtivo, regraItemCarrinho) {
+    constructor(carrinhosRepository, calculadoraTotaisItemCarrinho, calculadoraQuantidadeFinalCarrinho, validadorQuantidadeCarrinho, regraCarrinhoAtivo, regraItemCarrinho) {
         this.carrinhosRepository = carrinhosRepository;
         this.calculadoraTotaisItemCarrinho = calculadoraTotaisItemCarrinho;
+        this.calculadoraQuantidadeFinalCarrinho = calculadoraQuantidadeFinalCarrinho;
         this.validadorQuantidadeCarrinho = validadorQuantidadeCarrinho;
         this.regraCarrinhoAtivo = regraCarrinhoAtivo;
         this.regraItemCarrinho = regraItemCarrinho;
@@ -121,9 +128,7 @@ class CarrinhosService {
         }
         this.regraItemCarrinho.validarVariacao(produto, variacao);
         const itemExistente = await this.carrinhosRepository.buscarItemExistente(carrinhoId, String(produtoId), String(variacaoId));
-        const quantidadeFinal = itemExistente
-            ? itemExistente.quantidade + quantidadeNumber
-            : quantidadeNumber;
+        const quantidadeFinal = this.calculadoraQuantidadeFinalCarrinho.calcular(itemExistente, quantidadeNumber);
         this.regraItemCarrinho.validarEstoque(quantidadeFinal, variacao.estoque);
         const { precoUnitario, subtotal } = this.calculadoraTotaisItemCarrinho.calcular(produto.precoFinal, variacao.precoAdicional, quantidadeFinal);
         if (itemExistente) {
@@ -200,7 +205,8 @@ class CarrinhosService {
 }
 exports.CarrinhosService = CarrinhosService;
 const calculadoraTotaisItemCarrinho = new CalculadoraTotaisItemCarrinhoPadrao();
+const calculadoraQuantidadeFinalCarrinho = new CalculadoraQuantidadeFinalCarrinhoPadrao();
 const validadorQuantidadeCarrinho = new ValidadorQuantidadeCarrinhoPadrao();
 const regraCarrinhoAtivo = new RegraCarrinhoAtivoPadrao();
 const regraItemCarrinho = new RegraItemCarrinhoPadrao();
-exports.carrinhosService = new CarrinhosService(carrinhos_repository_1.carrinhosRepository, calculadoraTotaisItemCarrinho, validadorQuantidadeCarrinho, regraCarrinhoAtivo, regraItemCarrinho);
+exports.carrinhosService = new CarrinhosService(carrinhos_repository_1.carrinhosRepository, calculadoraTotaisItemCarrinho, calculadoraQuantidadeFinalCarrinho, validadorQuantidadeCarrinho, regraCarrinhoAtivo, regraItemCarrinho);

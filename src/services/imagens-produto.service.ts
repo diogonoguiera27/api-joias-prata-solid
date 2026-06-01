@@ -8,12 +8,39 @@ import {
 } from "../models/imagem-produto.model";
 import { imagensProdutoRepository } from "../repositories/imagens-produto.repository";
 
-type ImagensProdutoRepository = typeof imagensProdutoRepository;
-
 export interface DadosImagemProdutoValidados {
   url: string;
   textoAlt?: string | null;
   principal: boolean;
+}
+
+interface ProdutoImagemRepository {
+  ativo: boolean;
+}
+
+interface ImagemProdutoRepository {
+  produtoId: string;
+}
+
+export interface IImagensProdutoRepository {
+  buscarProdutoPorId(produtoId: string): Promise<ProdutoImagemRepository | null>;
+  criarImagem(data: {
+    produtoId: string;
+    url: string;
+    textoAlt?: string | null;
+    principal: boolean;
+  }): Promise<unknown>;
+  listarImagens(): Promise<unknown[]>;
+  listarImagensPorProduto(produtoId: string): Promise<unknown[]>;
+  buscarImagemPorId(id: string): Promise<ImagemProdutoRepository | null>;
+  buscarImagemDetalhadaPorId(id: string): Promise<unknown | null>;
+  removerPrincipalDasImagens(produtoId: string): Promise<unknown>;
+  atualizarImagem(
+    id: string,
+    data: DadosImagemProdutoValidados
+  ): Promise<unknown>;
+  definirImagemPrincipal(id: string): Promise<unknown>;
+  removerImagem(id: string): Promise<unknown>;
 }
 
 export interface IValidadorDadosImagemProduto {
@@ -55,7 +82,7 @@ export class ValidadorDadosImagemProdutoPadrao
 export class RegraImagemPrincipalProdutoUnica
   implements IRegraImagemPrincipalProduto
 {
-  constructor(private imagensProdutoRepository: ImagensProdutoRepository) {}
+  constructor(private imagensProdutoRepository: IImagensProdutoRepository) {}
 
   async aplicar(produtoId: string, principal: boolean) {
     if (principal) {
@@ -66,7 +93,7 @@ export class RegraImagemPrincipalProdutoUnica
 
 export class ImagensProdutoService {
   constructor(
-    private imagensProdutoRepository: ImagensProdutoRepository,
+    private imagensProdutoRepository: IImagensProdutoRepository,
     private validadorDadosImagemProduto: IValidadorDadosImagemProduto,
     private regraImagemPrincipalProduto: IRegraImagemPrincipalProduto
   ) {}

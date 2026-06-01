@@ -10,8 +10,6 @@ import {
 } from "../models/variacao-produto.model";
 import { variacoesProdutoRepository } from "../repositories/variacoes-produto.repository";
 
-type VariacoesProdutoRepository = typeof variacoesProdutoRepository;
-
 export interface DadosVariacaoProdutoValidados {
   nome: string;
   sku: string;
@@ -26,6 +24,41 @@ export interface DadosAjusteEstoqueVariacao {
   diferenca: number;
   estoqueAtual: number;
   motivo?: string | null;
+}
+
+interface ProdutoVariacaoRepository {
+  ativo: boolean;
+}
+
+interface VariacaoProdutoRepository {
+  id: string;
+  ativo: boolean;
+  estoque: number;
+}
+
+export interface IVariacoesProdutoRepository {
+  buscarProdutoPorId(
+    produtoId: string
+  ): Promise<ProdutoVariacaoRepository | null>;
+  buscarVariacaoPorSku(
+    sku: string
+  ): Promise<VariacaoProdutoRepository | null>;
+  criarVariacao(
+    data: DadosVariacaoProdutoValidados & { produtoId: string }
+  ): Promise<unknown>;
+  listarVariacoesAtivas(): Promise<unknown[]>;
+  listarVariacoesPorProduto(produtoId: string): Promise<unknown[]>;
+  buscarVariacaoPorId(id: string): Promise<VariacaoProdutoRepository | null>;
+  buscarVariacaoDetalhadaPorId(id: string): Promise<unknown | null>;
+  atualizarVariacao(
+    id: string,
+    data: DadosVariacaoProdutoValidados & { produtoId: string }
+  ): Promise<unknown>;
+  atualizarEstoque(
+    id: string,
+    data: DadosAjusteEstoqueVariacao
+  ): Promise<unknown>;
+  atualizarStatusVariacao(id: string, ativo: boolean): Promise<unknown>;
 }
 
 export interface IValidadorDadosVariacaoProduto {
@@ -171,7 +204,7 @@ export class RegraStatusVariacaoProdutoPadrao
 
 export class VariacoesProdutoService {
   constructor(
-    private variacoesProdutoRepository: VariacoesProdutoRepository,
+    private variacoesProdutoRepository: IVariacoesProdutoRepository,
     private validadorDadosVariacaoProduto: IValidadorDadosVariacaoProduto,
     private validadorEstoqueVariacaoProduto: IValidadorEstoqueVariacaoProduto,
     private calculadoraAjusteEstoqueVariacaoProduto: ICalculadoraAjusteEstoqueVariacaoProduto,

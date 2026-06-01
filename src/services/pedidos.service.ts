@@ -11,8 +11,6 @@ import {
 } from "../models/pedido.model";
 import { pedidosRepository } from "../repositories/pedidos.repository";
 
-type PedidosRepository = typeof pedidosRepository;
-
 interface PedidoComPagamento {
   status: StatusPedido;
   pagamento?: {
@@ -25,7 +23,10 @@ interface PedidoSimples {
 }
 
 interface ItemCarrinhoParaPedido {
+  produtoId: string;
+  variacaoId: string;
   quantidade: number;
+  precoUnitario: unknown;
   subtotal: unknown;
   produto: {
     nome: string;
@@ -38,13 +39,67 @@ interface ItemCarrinhoParaPedido {
   };
 }
 
+interface CarrinhoParaPedidoRepository {
+  id: string;
+  clienteId: string | null;
+  status: StatusCarrinho;
+  itens: ItemCarrinhoParaPedido[];
+}
+
+interface CriarPedidoRepositoryDTO {
+  clienteId: string | null;
+  subtotal: number;
+  totalDesconto: number;
+  totalFrete: number;
+  total: number;
+  status: StatusPedido;
+  itens: Array<{
+    produtoId: string;
+    variacaoId: string;
+    nomeProduto: string;
+    quantidade: number;
+    precoUnitario: unknown;
+    subtotal: unknown;
+  }>;
+}
+
+interface TotaisPedido {
+  subtotal: number;
+  totalDesconto: number;
+  totalFrete: number;
+  total: number;
+}
+
+export interface IPedidosRepository {
+  executarTransacao<T>(operacao: (tx: any) => Promise<T>): Promise<T>;
+  buscarCarrinhoPorId(
+    carrinhoId: string
+  ): Promise<CarrinhoParaPedidoRepository | null>;
+  buscarClientePorId(clienteId: string): Promise<unknown | null>;
+  criarPedido(data: CriarPedidoRepositoryDTO, tx?: any): Promise<unknown>;
+  atualizarCarrinhoAposCriacaoPedido(
+    carrinhoId: string,
+    data: {
+      status: StatusCarrinho;
+      clienteId: string | null;
+    },
+    tx?: any
+  ): Promise<unknown>;
+  listarPedidos(): Promise<unknown[]>;
+  buscarPedidoPorId(id: string): Promise<unknown | null>;
+  buscarPedidoComPagamentoPorId(
+    id: string
+  ): Promise<PedidoComPagamento | null>;
+  buscarPedidoSimplesPorId(id: string): Promise<PedidoSimples | null>;
+  atualizarStatusPedido(
+    id: string,
+    status: StatusPedido,
+    tx?: any
+  ): Promise<unknown>;
+}
+
 export interface ICalculadoraTotaisPedido {
-  calcular(itens: { subtotal: unknown }[]): {
-    subtotal: number;
-    totalDesconto: number;
-    totalFrete: number;
-    total: number;
-  };
+  calcular(itens: { subtotal: unknown }[]): TotaisPedido;
 }
 
 export interface IValidadorStatusPedido {
@@ -63,6 +118,18 @@ export interface IRegraCancelamentoPedido {
   validar(pedido: PedidoSimples): void;
 }
 
+export interface IRegraCriacaoPedido {
+  validarCarrinho(carrinho: CarrinhoParaPedidoRepository): void;
+}
+
+export interface IMontadorDadosPedido {
+  montar(
+    carrinho: CarrinhoParaPedidoRepository,
+    clienteId: string | null,
+    totais: TotaisPedido
+  ): CriarPedidoRepositoryDTO;
+}
+
 export class CalculadoraTotaisPedidoPadrao implements ICalculadoraTotaisPedido {
   calcular(itens: { subtotal: unknown }[]) {
     const subtotal = itens.reduce((acc, item) => {
@@ -74,6 +141,40 @@ export class CalculadoraTotaisPedidoPadrao implements ICalculadoraTotaisPedido {
       totalDesconto: 0,
       totalFrete: 0,
       total: Number(subtotal.toFixed(2)),
+    };
+  }
+}
+
+export class RegraCriacaoPedidoPadrao implements IRegraCriacaoPedido {
+  validarCarrinho(carrinho: CarrinhoParaPedidoRepository) {
+    if (carrinho.status !== StatusCarrinho.ATIVO) {
+      throw new Error("Somente carrinho ativo pode ser convertido em pedido.");
+    }
+
+    if (carrinho.itens.length === 0) {
+      throw new Error("Não é possível criar pedido com carrinho vazio.");
+    }
+  }
+}
+
+export class MontadorDadosPedidoPadrao implements IMontadorDadosPedido {
+  montar(
+    carrinho: CarrinhoParaPedidoRepository,
+    clienteId: string | null,
+    totais: TotaisPedido
+  ) {
+    return {
+      clienteId,
+      ...totais,
+      status: StatusPedido.PENDENTE_PAGAMENTO,
+      itens: carrinho.itens.map((item) => ({
+        produtoId: item.produtoId,
+        variacaoId: item.variacaoId,
+        nomeProduto: item.produto.nome,
+        quantidade: item.quantidade,
+        precoUnitario: item.precoUnitario,
+        subtotal: item.subtotal,
+      })),
     };
   }
 }
@@ -175,12 +276,14 @@ export class RegraCancelamentoPedidoPadrao implements IRegraCancelamentoPedido {
 
 export class PedidosService {
   constructor(
-    private pedidosRepository: PedidosRepository,
+    private pedidosRepository: IPedidosRepository,
     private calculadoraTotaisPedido: ICalculadoraTotaisPedido,
     private validadorStatusPedido: IValidadorStatusPedido,
     private validadorItensPedido: IValidadorItensPedido,
     private regraAtualizacaoStatusPedido: IRegraAtualizacaoStatusPedido,
-    private regraCancelamentoPedido: IRegraCancelamentoPedido
+    private regraCancelamentoPedido: IRegraCancelamentoPedido,
+    private regraCriacaoPedido: IRegraCriacaoPedido,
+    private montadorDadosPedido: IMontadorDadosPedido
   ) {}
 
   async criar(data: CriarPedidoDTO) {
@@ -196,13 +299,7 @@ export class PedidosService {
       throw new Error("Carrinho não encontrado.");
     }
 
-    if (carrinho.status !== StatusCarrinho.ATIVO) {
-      throw new Error("Somente carrinho ativo pode ser convertido em pedido.");
-    }
-
-    if (carrinho.itens.length === 0) {
-      throw new Error("Não é possível criar pedido com carrinho vazio.");
-    }
+    this.regraCriacaoPedido.validarCarrinho(carrinho);
 
     let clienteId = carrinho.clienteId;
 
@@ -221,22 +318,15 @@ export class PedidosService {
     this.validadorItensPedido.validar(carrinho.itens);
 
     const totais = this.calculadoraTotaisPedido.calcular(carrinho.itens);
+    const dadosPedido = this.montadorDadosPedido.montar(
+      carrinho,
+      clienteId,
+      totais
+    );
 
     return this.pedidosRepository.executarTransacao(async (tx) => {
       const pedido = await this.pedidosRepository.criarPedido(
-        {
-          clienteId,
-          ...totais,
-          status: StatusPedido.PENDENTE_PAGAMENTO,
-          itens: carrinho.itens.map((item) => ({
-            produtoId: item.produtoId,
-            variacaoId: item.variacaoId,
-            nomeProduto: item.produto.nome,
-            quantidade: item.quantidade,
-            precoUnitario: item.precoUnitario,
-            subtotal: item.subtotal,
-          })),
-        },
+        dadosPedido,
         tx
       );
 
@@ -309,6 +399,8 @@ const validadorStatusPedido = new ValidadorStatusPedidoPadrao();
 const validadorItensPedido = new ValidadorItensPedidoPadrao();
 const regraAtualizacaoStatusPedido = new RegraAtualizacaoStatusPedidoPadrao();
 const regraCancelamentoPedido = new RegraCancelamentoPedidoPadrao();
+const regraCriacaoPedido = new RegraCriacaoPedidoPadrao();
+const montadorDadosPedido = new MontadorDadosPedidoPadrao();
 
 export const pedidosService = new PedidosService(
   pedidosRepository,
@@ -316,5 +408,7 @@ export const pedidosService = new PedidosService(
   validadorStatusPedido,
   validadorItensPedido,
   regraAtualizacaoStatusPedido,
-  regraCancelamentoPedido
+  regraCancelamentoPedido,
+  regraCriacaoPedido,
+  montadorDadosPedido
 );
