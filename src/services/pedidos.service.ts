@@ -70,12 +70,18 @@ interface TotaisPedido {
   total: number;
 }
 
-export interface IPedidosRepository {
+export interface ITransacaoPedidosRepository {
   executarTransacao<T>(operacao: (tx: any) => Promise<T>): Promise<T>;
+}
+
+export interface IConsultaCriacaoPedidosRepository {
   buscarCarrinhoPorId(
     carrinhoId: string
   ): Promise<CarrinhoParaPedidoRepository | null>;
   buscarClientePorId(clienteId: string): Promise<unknown | null>;
+}
+
+export interface IEscritaPedidosRepository {
   criarPedido(data: CriarPedidoRepositoryDTO, tx?: any): Promise<unknown>;
   atualizarCarrinhoAposCriacaoPedido(
     carrinhoId: string,
@@ -85,18 +91,31 @@ export interface IPedidosRepository {
     },
     tx?: any
   ): Promise<unknown>;
+}
+
+export interface ILeituraPedidosRepository {
   listarPedidos(): Promise<unknown[]>;
   buscarPedidoPorId(id: string): Promise<unknown | null>;
   buscarPedidoComPagamentoPorId(
     id: string
   ): Promise<PedidoComPagamento | null>;
   buscarPedidoSimplesPorId(id: string): Promise<PedidoSimples | null>;
+}
+
+export interface IStatusPedidosRepository {
   atualizarStatusPedido(
     id: string,
     status: StatusPedido,
     tx?: any
   ): Promise<unknown>;
 }
+
+export interface IPedidosRepository
+  extends ITransacaoPedidosRepository,
+    IConsultaCriacaoPedidosRepository,
+    IEscritaPedidosRepository,
+    ILeituraPedidosRepository,
+    IStatusPedidosRepository {}
 
 export interface ICalculadoraTotaisPedido {
   calcular(itens: { subtotal: unknown }[]): TotaisPedido;
@@ -276,7 +295,11 @@ export class RegraCancelamentoPedidoPadrao implements IRegraCancelamentoPedido {
 
 export class PedidosService {
   constructor(
-    private pedidosRepository: IPedidosRepository,
+    private transacaoPedidosRepository: ITransacaoPedidosRepository,
+    private consultaCriacaoPedidosRepository: IConsultaCriacaoPedidosRepository,
+    private escritaPedidosRepository: IEscritaPedidosRepository,
+    private leituraPedidosRepository: ILeituraPedidosRepository,
+    private statusPedidosRepository: IStatusPedidosRepository,
     private calculadoraTotaisPedido: ICalculadoraTotaisPedido,
     private validadorStatusPedido: IValidadorStatusPedido,
     private validadorItensPedido: IValidadorItensPedido,
@@ -291,7 +314,7 @@ export class PedidosService {
       throw new Error("O carrinho é obrigatório para criar o pedido.");
     }
 
-    const carrinho = await this.pedidosRepository.buscarCarrinhoPorId(
+    const carrinho = await this.consultaCriacaoPedidosRepository.buscarCarrinhoPorId(
       String(data.carrinhoId)
     );
 
@@ -304,7 +327,7 @@ export class PedidosService {
     let clienteId = carrinho.clienteId;
 
     if (data.clienteId) {
-      const cliente = await this.pedidosRepository.buscarClientePorId(
+      const cliente = await this.consultaCriacaoPedidosRepository.buscarClientePorId(
         String(data.clienteId)
       );
 
@@ -324,14 +347,14 @@ export class PedidosService {
       totais
     );
 
-    return this.pedidosRepository.executarTransacao(async (tx) => {
-      const pedido = await this.pedidosRepository.criarPedido(
+    return this.transacaoPedidosRepository.executarTransacao(async (tx) => {
+      const pedido = await this.escritaPedidosRepository.criarPedido(
         dadosPedido,
         tx
       );
 
       const carrinhoAtualizado =
-        await this.pedidosRepository.atualizarCarrinhoAposCriacaoPedido(
+        await this.escritaPedidosRepository.atualizarCarrinhoAposCriacaoPedido(
           carrinho.id,
           {
             status: StatusCarrinho.CONVERTIDO_EM_PEDIDO,
@@ -348,11 +371,13 @@ export class PedidosService {
   }
 
   async listar() {
-    return this.pedidosRepository.listarPedidos();
+    return this.leituraPedidosRepository.listarPedidos();
   }
 
   async buscarPorId(data: BuscarPedidoPorIdDTO) {
-    const pedido = await this.pedidosRepository.buscarPedidoPorId(data.id);
+    const pedido = await this.leituraPedidosRepository.buscarPedidoPorId(
+      data.id
+    );
 
     if (!pedido) {
       throw new Error("Pedido não encontrado.");
@@ -362,9 +387,10 @@ export class PedidosService {
   }
 
   async atualizarStatus(data: AtualizarStatusPedidoDTO) {
-    const pedido = await this.pedidosRepository.buscarPedidoComPagamentoPorId(
-      data.id
-    );
+    const pedido =
+      await this.leituraPedidosRepository.buscarPedidoComPagamentoPorId(
+        data.id
+      );
 
     if (!pedido) {
       throw new Error("Pedido não encontrado.");
@@ -373,11 +399,11 @@ export class PedidosService {
     const status = this.validadorStatusPedido.validar(data.status);
     this.regraAtualizacaoStatusPedido.validar(pedido, status);
 
-    return this.pedidosRepository.atualizarStatusPedido(data.id, status);
+    return this.statusPedidosRepository.atualizarStatusPedido(data.id, status);
   }
 
   async cancelar(data: CancelarPedidoDTO) {
-    const pedido = await this.pedidosRepository.buscarPedidoSimplesPorId(
+    const pedido = await this.leituraPedidosRepository.buscarPedidoSimplesPorId(
       data.id
     );
 
@@ -387,7 +413,7 @@ export class PedidosService {
 
     this.regraCancelamentoPedido.validar(pedido);
 
-    return this.pedidosRepository.atualizarStatusPedido(
+    return this.statusPedidosRepository.atualizarStatusPedido(
       data.id,
       StatusPedido.CANCELADO
     );
@@ -403,6 +429,10 @@ const regraCriacaoPedido = new RegraCriacaoPedidoPadrao();
 const montadorDadosPedido = new MontadorDadosPedidoPadrao();
 
 export const pedidosService = new PedidosService(
+  pedidosRepository,
+  pedidosRepository,
+  pedidosRepository,
+  pedidosRepository,
   pedidosRepository,
   calculadoraTotaisPedido,
   validadorStatusPedido,

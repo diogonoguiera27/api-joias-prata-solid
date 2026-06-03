@@ -204,8 +204,10 @@ class RegraStatusCupomPadrao {
 }
 exports.RegraStatusCupomPadrao = RegraStatusCupomPadrao;
 class CuponsService {
-    constructor(cuponsRepository, normalizadorCodigoCupom, validadorDadosCupom, validadorValoresAplicacaoCupom, regraAplicacaoCupom, calculadorasDescontoCupom, regraStatusCupom) {
-        this.cuponsRepository = cuponsRepository;
+    constructor(leituraCuponsRepository, escritaCuponsRepository, statusCuponsRepository, normalizadorCodigoCupom, validadorDadosCupom, validadorValoresAplicacaoCupom, regraAplicacaoCupom, calculadorasDescontoCupom, regraStatusCupom) {
+        this.leituraCuponsRepository = leituraCuponsRepository;
+        this.escritaCuponsRepository = escritaCuponsRepository;
+        this.statusCuponsRepository = statusCuponsRepository;
         this.normalizadorCodigoCupom = normalizadorCodigoCupom;
         this.validadorDadosCupom = validadorDadosCupom;
         this.validadorValoresAplicacaoCupom = validadorValoresAplicacaoCupom;
@@ -215,25 +217,25 @@ class CuponsService {
     }
     async criar(data) {
         const dadosCupom = this.validadorDadosCupom.validar(data);
-        const cupomExistente = await this.cuponsRepository.buscarCupomPorCodigo(dadosCupom.codigo);
+        const cupomExistente = await this.leituraCuponsRepository.buscarCupomPorCodigo(dadosCupom.codigo);
         if (cupomExistente) {
             throw new Error("Já existe um cupom com esse código.");
         }
-        return this.cuponsRepository.criarCupom(dadosCupom);
+        return this.escritaCuponsRepository.criarCupom(dadosCupom);
     }
     async listar() {
-        return this.cuponsRepository.listarCupons();
+        return this.leituraCuponsRepository.listarCupons();
     }
     async buscarPorCodigo(data) {
         const codigo = this.normalizadorCodigoCupom.normalizar(data.codigo);
-        const cupom = await this.cuponsRepository.buscarCupomPorCodigo(codigo);
+        const cupom = await this.leituraCuponsRepository.buscarCupomPorCodigo(codigo);
         if (!cupom) {
             throw new Error("Cupom não encontrado.");
         }
         return cupom;
     }
     async buscarPorId(data) {
-        const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+        const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
         if (!cupom) {
             throw new Error("Cupom não encontrado.");
         }
@@ -241,7 +243,7 @@ class CuponsService {
     }
     async aplicar(data) {
         const codigo = this.normalizadorCodigoCupom.normalizar(data.codigo);
-        const cupom = await this.cuponsRepository.buscarCupomPorCodigo(codigo);
+        const cupom = await this.leituraCuponsRepository.buscarCupomPorCodigo(codigo);
         if (!cupom) {
             throw new Error("Cupom não encontrado.");
         }
@@ -260,39 +262,39 @@ class CuponsService {
         };
     }
     async atualizar(data) {
-        const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+        const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
         if (!cupom) {
             throw new Error("Cupom não encontrado.");
         }
         const dadosCupom = this.validadorDadosCupom.validar(data);
-        const cupomComMesmoCodigo = await this.cuponsRepository.buscarCupomPorCodigo(dadosCupom.codigo);
+        const cupomComMesmoCodigo = await this.leituraCuponsRepository.buscarCupomPorCodigo(dadosCupom.codigo);
         if (cupomComMesmoCodigo && cupomComMesmoCodigo.id !== data.id) {
             throw new Error("Já existe outro cupom com esse código.");
         }
-        return this.cuponsRepository.atualizarCupom(data.id, dadosCupom);
+        return this.escritaCuponsRepository.atualizarCupom(data.id, dadosCupom);
     }
     async ativar(data) {
-        const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+        const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
         if (!cupom) {
             throw new Error("Cupom não encontrado.");
         }
         this.regraStatusCupom.validarAtivacao(cupom);
-        return this.cuponsRepository.atualizarStatusCupom(data.id, true);
+        return this.statusCuponsRepository.atualizarStatusCupom(data.id, true);
     }
     async desativar(data) {
-        const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+        const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
         if (!cupom) {
             throw new Error("Cupom não encontrado.");
         }
         this.regraStatusCupom.validarDesativacao(cupom);
-        return this.cuponsRepository.atualizarStatusCupom(data.id, false);
+        return this.statusCuponsRepository.atualizarStatusCupom(data.id, false);
     }
     async remover(data) {
-        const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+        const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
         if (!cupom) {
             throw new Error("Cupom não encontrado.");
         }
-        const cupomRemovido = await this.cuponsRepository.atualizarStatusCupom(data.id, false);
+        const cupomRemovido = await this.statusCuponsRepository.atualizarStatusCupom(data.id, false);
         return {
             message: "Cupom removido com sucesso.",
             cupom: cupomRemovido,
@@ -306,4 +308,4 @@ const validadorValoresAplicacaoCupom = new ValidadorValoresAplicacaoCupomPadrao(
 const regraAplicacaoCupom = new RegraAplicacaoCupomPadrao();
 const calculadorasDescontoCupom = new CalculadorasDescontoCupomPadrao();
 const regraStatusCupom = new RegraStatusCupomPadrao();
-exports.cuponsService = new CuponsService(cupons_repository_1.cuponsRepository, normalizadorCodigoCupom, validadorDadosCupom, validadorValoresAplicacaoCupom, regraAplicacaoCupom, calculadorasDescontoCupom, regraStatusCupom);
+exports.cuponsService = new CuponsService(cupons_repository_1.cuponsRepository, cupons_repository_1.cuponsRepository, cupons_repository_1.cuponsRepository, normalizadorCodigoCupom, validadorDadosCupom, validadorValoresAplicacaoCupom, regraAplicacaoCupom, calculadorasDescontoCupom, regraStatusCupom);

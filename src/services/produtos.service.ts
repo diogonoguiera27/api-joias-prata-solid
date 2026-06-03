@@ -8,7 +8,12 @@ import {
   RemoverProdutoDTO,
 } from "../models/produto.model";
 import { produtosRepository } from "../repositories/produtos.repository";
-import { IProdutosRepository } from "../repositories/interfaces/produtos-repository.interface";
+import {
+  IConsultaCategoriasProdutoRepository,
+  IEscritaProdutosRepository,
+  ILeituraProdutosRepository,
+  IStatusProdutosRepository,
+} from "../repositories/interfaces/produtos-repository.interface";
 
 export interface DadosProdutoValidados {
   nome: string;
@@ -139,7 +144,10 @@ export class ValidadorDadosProdutoPadrao implements IValidadorDadosProduto {
 
 export class ProdutosService {
   constructor(
-    private produtosRepository: IProdutosRepository,
+    private leituraProdutosRepository: ILeituraProdutosRepository,
+    private escritaProdutosRepository: IEscritaProdutosRepository,
+    private statusProdutosRepository: IStatusProdutosRepository,
+    private categoriasProdutoRepository: IConsultaCategoriasProdutoRepository,
     private validadorDadosProduto: IValidadorDadosProduto
   ) {}
 
@@ -148,7 +156,7 @@ export class ProdutosService {
       throw new Error("A categoria do produto é obrigatória.");
     }
 
-    const categoria = await this.produtosRepository.buscarCategoriaPorId(
+    const categoria = await this.categoriasProdutoRepository.buscarCategoriaPorId(
       String(categoriaId)
     );
 
@@ -172,7 +180,7 @@ export class ProdutosService {
     );
 
     const produtoExistente =
-      await this.produtosRepository.buscarProdutoSimplesPorSlug(
+      await this.leituraProdutosRepository.buscarProdutoSimplesPorSlug(
         dadosProduto.slug
       );
 
@@ -180,7 +188,7 @@ export class ProdutosService {
       throw new Error("Já existe um produto com esse nome.");
     }
 
-    return this.produtosRepository.criarProduto({
+    return this.escritaProdutosRepository.criarProduto({
       nome: dadosProduto.nome,
       slug: dadosProduto.slug,
       descricao: dadosProduto.descricao,
@@ -194,11 +202,11 @@ export class ProdutosService {
   }
 
   async listar() {
-    return this.produtosRepository.listarProdutosAtivos();
+    return this.leituraProdutosRepository.listarProdutosAtivos();
   }
 
   async buscarPorSlug(data: BuscarProdutoPorSlugDTO) {
-    const produto = await this.produtosRepository.buscarProdutoPorSlug(
+    const produto = await this.leituraProdutosRepository.buscarProdutoPorSlug(
       data.slug
     );
 
@@ -210,7 +218,9 @@ export class ProdutosService {
   }
 
   async buscarPorId(data: BuscarProdutoPorIdDTO) {
-    const produto = await this.produtosRepository.buscarProdutoPorId(data.id);
+    const produto = await this.leituraProdutosRepository.buscarProdutoPorId(
+      data.id
+    );
 
     if (!produto) {
       throw new Error("Produto não encontrado.");
@@ -220,7 +230,7 @@ export class ProdutosService {
   }
 
   async atualizar(data: AtualizarProdutoDTO) {
-    const produto = await this.produtosRepository.buscarProdutoSimplesPorId(
+    const produto = await this.leituraProdutosRepository.buscarProdutoSimplesPorId(
       data.id
     );
 
@@ -236,7 +246,7 @@ export class ProdutosService {
     );
 
     const produtoComMesmoSlug =
-      await this.produtosRepository.buscarProdutoSimplesPorSlug(
+      await this.leituraProdutosRepository.buscarProdutoSimplesPorSlug(
         dadosProduto.slug
       );
 
@@ -244,7 +254,7 @@ export class ProdutosService {
       throw new Error("Já existe outro produto com esse nome.");
     }
 
-    return this.produtosRepository.atualizarProduto(data.id, {
+    return this.escritaProdutosRepository.atualizarProduto(data.id, {
       nome: dadosProduto.nome,
       slug: dadosProduto.slug,
       descricao: dadosProduto.descricao,
@@ -258,7 +268,7 @@ export class ProdutosService {
   }
 
   async desativar(data: DesativarProdutoDTO) {
-    const produto = await this.produtosRepository.buscarProdutoSimplesPorId(
+    const produto = await this.leituraProdutosRepository.buscarProdutoSimplesPorId(
       data.id
     );
 
@@ -270,11 +280,11 @@ export class ProdutosService {
       throw new Error("Produto já está desativado.");
     }
 
-    return this.produtosRepository.atualizarStatusProduto(data.id, false);
+    return this.statusProdutosRepository.atualizarStatusProduto(data.id, false);
   }
 
   async ativar(data: AtivarProdutoDTO) {
-    const produto = await this.produtosRepository.buscarProdutoSimplesPorId(
+    const produto = await this.leituraProdutosRepository.buscarProdutoSimplesPorId(
       data.id
     );
 
@@ -286,11 +296,11 @@ export class ProdutosService {
       throw new Error("Produto já está ativo.");
     }
 
-    return this.produtosRepository.atualizarStatusProduto(data.id, true);
+    return this.statusProdutosRepository.atualizarStatusProduto(data.id, true);
   }
 
   async remover(data: RemoverProdutoDTO) {
-    const produto = await this.produtosRepository.buscarProdutoSimplesPorId(
+    const produto = await this.leituraProdutosRepository.buscarProdutoSimplesPorId(
       data.id
     );
 
@@ -298,10 +308,11 @@ export class ProdutosService {
       throw new Error("Produto não encontrado.");
     }
 
-    const produtoRemovido = await this.produtosRepository.atualizarStatusProduto(
-      data.id,
-      false
-    );
+    const produtoRemovido =
+      await this.statusProdutosRepository.atualizarStatusProduto(
+        data.id,
+        false
+      );
 
     return {
       message: "Produto removido com sucesso.",
@@ -318,6 +329,9 @@ const validadorDadosProduto = new ValidadorDadosProdutoPadrao(
 );
 
 export const produtosService = new ProdutosService(
+  produtosRepository,
+  produtosRepository,
+  produtosRepository,
   produtosRepository,
   validadorDadosProduto
 );

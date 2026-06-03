@@ -70,8 +70,15 @@ class RegraItemCarrinhoPadrao {
 }
 exports.RegraItemCarrinhoPadrao = RegraItemCarrinhoPadrao;
 class CarrinhosService {
-    constructor(carrinhosRepository, calculadoraTotaisItemCarrinho, calculadoraQuantidadeFinalCarrinho, validadorQuantidadeCarrinho, regraCarrinhoAtivo, regraItemCarrinho) {
-        this.carrinhosRepository = carrinhosRepository;
+    constructor(consultaClienteCarrinhoRepository, escritaCarrinhosRepository, leituraCarrinhosRepository, consultaCatalogoCarrinhoRepository, leituraItensCarrinhoRepository, escritaItensCarrinhoRepository, remocaoItensCarrinhoRepository, statusCarrinhosRepository, calculadoraTotaisItemCarrinho, calculadoraQuantidadeFinalCarrinho, validadorQuantidadeCarrinho, regraCarrinhoAtivo, regraItemCarrinho) {
+        this.consultaClienteCarrinhoRepository = consultaClienteCarrinhoRepository;
+        this.escritaCarrinhosRepository = escritaCarrinhosRepository;
+        this.leituraCarrinhosRepository = leituraCarrinhosRepository;
+        this.consultaCatalogoCarrinhoRepository = consultaCatalogoCarrinhoRepository;
+        this.leituraItensCarrinhoRepository = leituraItensCarrinhoRepository;
+        this.escritaItensCarrinhoRepository = escritaItensCarrinhoRepository;
+        this.remocaoItensCarrinhoRepository = remocaoItensCarrinhoRepository;
+        this.statusCarrinhosRepository = statusCarrinhosRepository;
         this.calculadoraTotaisItemCarrinho = calculadoraTotaisItemCarrinho;
         this.calculadoraQuantidadeFinalCarrinho = calculadoraQuantidadeFinalCarrinho;
         this.validadorQuantidadeCarrinho = validadorQuantidadeCarrinho;
@@ -81,20 +88,20 @@ class CarrinhosService {
     async criar(data) {
         const { clienteId } = data;
         if (clienteId) {
-            const cliente = await this.carrinhosRepository.buscarClientePorId(String(clienteId));
+            const cliente = await this.consultaClienteCarrinhoRepository.buscarClientePorId(String(clienteId));
             if (!cliente) {
                 throw new Error("Cliente não encontrado.");
             }
         }
-        const carrinho = await this.carrinhosRepository.criarCarrinho(clienteId ? String(clienteId) : null);
+        const carrinho = await this.escritaCarrinhosRepository.criarCarrinho(clienteId ? String(clienteId) : null);
         return carrinho;
     }
     async listar() {
-        const carrinhos = await this.carrinhosRepository.listarCarrinhos();
+        const carrinhos = await this.leituraCarrinhosRepository.listarCarrinhos();
         return carrinhos;
     }
     async buscarPorId(id) {
-        const carrinho = await this.carrinhosRepository.buscarCarrinhoPorId(id);
+        const carrinho = await this.leituraCarrinhosRepository.buscarCarrinhoPorId(id);
         if (!carrinho) {
             throw new Error("Carrinho não encontrado.");
         }
@@ -112,33 +119,33 @@ class CarrinhosService {
             throw new Error("A quantidade é obrigatória.");
         }
         const quantidadeNumber = this.validadorQuantidadeCarrinho.validar(quantidade);
-        const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
+        const carrinho = await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
         if (!carrinho) {
             throw new Error("Carrinho não encontrado.");
         }
         this.regraCarrinhoAtivo.validar(carrinho.status);
-        const produto = await this.carrinhosRepository.buscarProdutoPorId(String(produtoId));
+        const produto = await this.consultaCatalogoCarrinhoRepository.buscarProdutoPorId(String(produtoId));
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
         this.regraItemCarrinho.validarProduto(produto);
-        const variacao = await this.carrinhosRepository.buscarVariacaoPorId(String(variacaoId));
+        const variacao = await this.consultaCatalogoCarrinhoRepository.buscarVariacaoPorId(String(variacaoId));
         if (!variacao) {
             throw new Error("Variação de produto não encontrada.");
         }
         this.regraItemCarrinho.validarVariacao(produto, variacao);
-        const itemExistente = await this.carrinhosRepository.buscarItemExistente(carrinhoId, String(produtoId), String(variacaoId));
+        const itemExistente = await this.leituraItensCarrinhoRepository.buscarItemExistente(carrinhoId, String(produtoId), String(variacaoId));
         const quantidadeFinal = this.calculadoraQuantidadeFinalCarrinho.calcular(itemExistente, quantidadeNumber);
         this.regraItemCarrinho.validarEstoque(quantidadeFinal, variacao.estoque);
         const { precoUnitario, subtotal } = this.calculadoraTotaisItemCarrinho.calcular(produto.precoFinal, variacao.precoAdicional, quantidadeFinal);
         if (itemExistente) {
-            return this.carrinhosRepository.atualizarItemCarrinho(itemExistente.id, {
+            return this.escritaItensCarrinhoRepository.atualizarItemCarrinho(itemExistente.id, {
                 quantidade: quantidadeFinal,
                 precoUnitario,
                 subtotal,
             });
         }
-        return this.carrinhosRepository.criarItemCarrinho({
+        return this.escritaItensCarrinhoRepository.criarItemCarrinho({
             carrinhoId,
             produtoId: String(produtoId),
             variacaoId: String(variacaoId),
@@ -149,17 +156,17 @@ class CarrinhosService {
     }
     async atualizarQuantidadeItem(data) {
         const { carrinhoId, itemId, quantidade } = data;
-        const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
+        const carrinho = await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
         if (!carrinho) {
             throw new Error("Carrinho não encontrado.");
         }
         this.regraCarrinhoAtivo.validar(carrinho.status);
-        const item = await this.carrinhosRepository.buscarItemPorId(itemId);
+        const item = await this.leituraItensCarrinhoRepository.buscarItemPorId(itemId);
         this.regraItemCarrinho.validarPertencimentoItem(item, carrinhoId);
         const quantidadeNumber = this.validadorQuantidadeCarrinho.validar(quantidade);
         this.regraItemCarrinho.validarEstoque(quantidadeNumber, item.variacao.estoque);
         const { precoUnitario, subtotal } = this.calculadoraTotaisItemCarrinho.calcular(item.produto.precoFinal, item.variacao.precoAdicional, quantidadeNumber);
-        const itemAtualizado = await this.carrinhosRepository.atualizarItemCarrinho(itemId, {
+        const itemAtualizado = await this.escritaItensCarrinhoRepository.atualizarItemCarrinho(itemId, {
             quantidade: quantidadeNumber,
             precoUnitario,
             subtotal,
@@ -168,38 +175,38 @@ class CarrinhosService {
     }
     async removerItem(data) {
         const { carrinhoId, itemId } = data;
-        const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
+        const carrinho = await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
         if (!carrinho) {
             throw new Error("Carrinho não encontrado.");
         }
         this.regraCarrinhoAtivo.validar(carrinho.status);
-        const item = await this.carrinhosRepository.buscarItemPorId(itemId);
+        const item = await this.leituraItensCarrinhoRepository.buscarItemPorId(itemId);
         this.regraItemCarrinho.validarPertencimentoItem(item, carrinhoId);
-        await this.carrinhosRepository.removerItemCarrinho(itemId);
+        await this.remocaoItensCarrinhoRepository.removerItemCarrinho(itemId);
         return {
             message: "Item removido do carrinho com sucesso.",
         };
     }
     async limpar(data) {
         const { carrinhoId } = data;
-        const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
+        const carrinho = await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
         if (!carrinho) {
             throw new Error("Carrinho não encontrado.");
         }
         this.regraCarrinhoAtivo.validar(carrinho.status, "Não é possível limpar um carrinho que não está ativo.");
-        await this.carrinhosRepository.limparItensDoCarrinho(carrinhoId);
+        await this.remocaoItensCarrinhoRepository.limparItensDoCarrinho(carrinhoId);
         return {
             message: "Carrinho limpo com sucesso.",
         };
     }
     async abandonar(data) {
         const { carrinhoId } = data;
-        const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
+        const carrinho = await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(carrinhoId);
         if (!carrinho) {
             throw new Error("Carrinho não encontrado.");
         }
         this.regraCarrinhoAtivo.validar(carrinho.status, "Somente carrinho ativo pode ser abandonado.");
-        const carrinhoAtualizado = await this.carrinhosRepository.atualizarStatusCarrinho(carrinhoId, enums_1.StatusCarrinho.ABANDONADO);
+        const carrinhoAtualizado = await this.statusCarrinhosRepository.atualizarStatusCarrinho(carrinhoId, enums_1.StatusCarrinho.ABANDONADO);
         return carrinhoAtualizado;
     }
 }
@@ -209,4 +216,4 @@ const calculadoraQuantidadeFinalCarrinho = new CalculadoraQuantidadeFinalCarrinh
 const validadorQuantidadeCarrinho = new ValidadorQuantidadeCarrinhoPadrao();
 const regraCarrinhoAtivo = new RegraCarrinhoAtivoPadrao();
 const regraItemCarrinho = new RegraItemCarrinhoPadrao();
-exports.carrinhosService = new CarrinhosService(carrinhos_repository_1.carrinhosRepository, calculadoraTotaisItemCarrinho, calculadoraQuantidadeFinalCarrinho, validadorQuantidadeCarrinho, regraCarrinhoAtivo, regraItemCarrinho);
+exports.carrinhosService = new CarrinhosService(carrinhos_repository_1.carrinhosRepository, carrinhos_repository_1.carrinhosRepository, carrinhos_repository_1.carrinhosRepository, carrinhos_repository_1.carrinhosRepository, carrinhos_repository_1.carrinhosRepository, carrinhos_repository_1.carrinhosRepository, carrinhos_repository_1.carrinhosRepository, carrinhos_repository_1.carrinhosRepository, calculadoraTotaisItemCarrinho, calculadoraQuantidadeFinalCarrinho, validadorQuantidadeCarrinho, regraCarrinhoAtivo, regraItemCarrinho);

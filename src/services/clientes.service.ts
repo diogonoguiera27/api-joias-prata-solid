@@ -22,8 +22,15 @@ interface ClienteRepository {
   id: string;
 }
 
-export interface IClientesRepository {
+export interface IEscritaClientesRepository {
   criarCliente(data: DadosClienteValidados): Promise<ClienteComVinculos>;
+  atualizarCliente(
+    id: string,
+    data: DadosClienteValidados
+  ): Promise<ClienteComVinculos>;
+}
+
+export interface ILeituraClientesRepository {
   listarClientes(): Promise<ClienteComVinculos[]>;
   buscarClientePorId(id: string): Promise<ClienteRepository | null>;
   buscarClienteDetalhadoPorId(id: string): Promise<ClienteComVinculos | null>;
@@ -31,12 +38,16 @@ export interface IClientesRepository {
   buscarClienteComVinculosPorId(
     id: string
   ): Promise<ClienteComVinculos | null>;
-  atualizarCliente(
-    id: string,
-    data: DadosClienteValidados
-  ): Promise<ClienteComVinculos>;
+}
+
+export interface IRemocaoClientesRepository {
   removerCliente(id: string): Promise<unknown>;
 }
+
+export interface IClientesRepository
+  extends IEscritaClientesRepository,
+    ILeituraClientesRepository,
+    IRemocaoClientesRepository {}
 
 export interface IValidadorDadosCliente {
   validar(data: CriarClienteDTO): DadosClienteValidados;
@@ -101,7 +112,9 @@ export class RegraRemocaoClienteSemVinculos implements IRegraRemocaoCliente {
 
 export class ClientesService {
   constructor(
-    private clientesRepository: IClientesRepository,
+    private leituraClientesRepository: ILeituraClientesRepository,
+    private escritaClientesRepository: IEscritaClientesRepository,
+    private remocaoClientesRepository: IRemocaoClientesRepository,
     private validadorDadosCliente: IValidadorDadosCliente,
     private regraRemocaoCliente: IRegraRemocaoCliente
   ) {}
@@ -110,23 +123,24 @@ export class ClientesService {
     const dadosCliente = this.validadorDadosCliente.validar(data);
 
     const clienteExistente =
-      await this.clientesRepository.buscarClientePorEmail(dadosCliente.email);
+      await this.leituraClientesRepository.buscarClientePorEmail(
+        dadosCliente.email
+      );
 
     if (clienteExistente) {
       throw new Error("Já existe um cliente com esse email.");
     }
 
-    return this.clientesRepository.criarCliente(dadosCliente);
+    return this.escritaClientesRepository.criarCliente(dadosCliente);
   }
 
   async listar() {
-    return this.clientesRepository.listarClientes();
+    return this.leituraClientesRepository.listarClientes();
   }
 
   async buscarPorId(data: BuscarClientePorIdDTO) {
-    const cliente = await this.clientesRepository.buscarClienteDetalhadoPorId(
-      data.id
-    );
+    const cliente =
+      await this.leituraClientesRepository.buscarClienteDetalhadoPorId(data.id);
 
     if (!cliente) {
       throw new Error("Cliente não encontrado.");
@@ -136,7 +150,9 @@ export class ClientesService {
   }
 
   async atualizar(data: AtualizarClienteDTO) {
-    const cliente = await this.clientesRepository.buscarClientePorId(data.id);
+    const cliente = await this.leituraClientesRepository.buscarClientePorId(
+      data.id
+    );
 
     if (!cliente) {
       throw new Error("Cliente não encontrado.");
@@ -145,19 +161,25 @@ export class ClientesService {
     const dadosCliente = this.validadorDadosCliente.validar(data);
 
     const clienteComMesmoEmail =
-      await this.clientesRepository.buscarClientePorEmail(dadosCliente.email);
+      await this.leituraClientesRepository.buscarClientePorEmail(
+        dadosCliente.email
+      );
 
     if (clienteComMesmoEmail && clienteComMesmoEmail.id !== data.id) {
       throw new Error("Já existe outro cliente com esse email.");
     }
 
-    return this.clientesRepository.atualizarCliente(data.id, dadosCliente);
+    return this.escritaClientesRepository.atualizarCliente(
+      data.id,
+      dadosCliente
+    );
   }
 
   async remover(data: RemoverClienteDTO) {
-    const cliente = await this.clientesRepository.buscarClienteComVinculosPorId(
-      data.id
-    );
+    const cliente =
+      await this.leituraClientesRepository.buscarClienteComVinculosPorId(
+        data.id
+      );
 
     if (!cliente) {
       throw new Error("Cliente não encontrado.");
@@ -165,7 +187,7 @@ export class ClientesService {
 
     this.regraRemocaoCliente.validar(cliente);
 
-    await this.clientesRepository.removerCliente(data.id);
+    await this.remocaoClientesRepository.removerCliente(data.id);
 
     return {
       message: "Cliente removido com sucesso.",
@@ -177,6 +199,8 @@ const validadorDadosCliente = new ValidadorDadosClientePadrao();
 const regraRemocaoCliente = new RegraRemocaoClienteSemVinculos();
 
 export const clientesService = new ClientesService(
+  clientesRepository,
+  clientesRepository,
   clientesRepository,
   validadorDadosCliente,
   regraRemocaoCliente

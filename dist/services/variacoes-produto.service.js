@@ -93,8 +93,12 @@ class RegraStatusVariacaoProdutoPadrao {
 }
 exports.RegraStatusVariacaoProdutoPadrao = RegraStatusVariacaoProdutoPadrao;
 class VariacoesProdutoService {
-    constructor(variacoesProdutoRepository, validadorDadosVariacaoProduto, validadorEstoqueVariacaoProduto, calculadoraAjusteEstoqueVariacaoProduto, regraStatusVariacaoProduto) {
-        this.variacoesProdutoRepository = variacoesProdutoRepository;
+    constructor(consultaProdutoVariacaoRepository, leituraVariacoesProdutoRepository, escritaVariacoesProdutoRepository, estoqueVariacoesProdutoRepository, statusVariacoesProdutoRepository, validadorDadosVariacaoProduto, validadorEstoqueVariacaoProduto, calculadoraAjusteEstoqueVariacaoProduto, regraStatusVariacaoProduto) {
+        this.consultaProdutoVariacaoRepository = consultaProdutoVariacaoRepository;
+        this.leituraVariacoesProdutoRepository = leituraVariacoesProdutoRepository;
+        this.escritaVariacoesProdutoRepository = escritaVariacoesProdutoRepository;
+        this.estoqueVariacoesProdutoRepository = estoqueVariacoesProdutoRepository;
+        this.statusVariacoesProdutoRepository = statusVariacoesProdutoRepository;
         this.validadorDadosVariacaoProduto = validadorDadosVariacaoProduto;
         this.validadorEstoqueVariacaoProduto = validadorEstoqueVariacaoProduto;
         this.calculadoraAjusteEstoqueVariacaoProduto = calculadoraAjusteEstoqueVariacaoProduto;
@@ -104,7 +108,7 @@ class VariacoesProdutoService {
         if (!produtoId) {
             throw new Error("O produto é obrigatório.");
         }
-        const produto = await this.variacoesProdutoRepository.buscarProdutoPorId(String(produtoId));
+        const produto = await this.consultaProdutoVariacaoRepository.buscarProdutoPorId(String(produtoId));
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
@@ -116,50 +120,50 @@ class VariacoesProdutoService {
     async criar(data) {
         const produtoId = await this.validarProduto(data.produtoId, "Não é possível criar variação para um produto inativo.");
         const dadosVariacao = this.validadorDadosVariacaoProduto.validar(data);
-        const variacaoComMesmoSku = await this.variacoesProdutoRepository.buscarVariacaoPorSku(dadosVariacao.sku);
+        const variacaoComMesmoSku = await this.leituraVariacoesProdutoRepository.buscarVariacaoPorSku(dadosVariacao.sku);
         if (variacaoComMesmoSku) {
             throw new Error("Já existe uma variação com esse SKU.");
         }
-        return this.variacoesProdutoRepository.criarVariacao({
+        return this.escritaVariacoesProdutoRepository.criarVariacao({
             produtoId,
             ...dadosVariacao,
         });
     }
     async listar() {
-        return this.variacoesProdutoRepository.listarVariacoesAtivas();
+        return this.leituraVariacoesProdutoRepository.listarVariacoesAtivas();
     }
     async listarPorProduto(data) {
-        const produto = await this.variacoesProdutoRepository.buscarProdutoPorId(data.produtoId);
+        const produto = await this.consultaProdutoVariacaoRepository.buscarProdutoPorId(data.produtoId);
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
-        return this.variacoesProdutoRepository.listarVariacoesPorProduto(data.produtoId);
+        return this.leituraVariacoesProdutoRepository.listarVariacoesPorProduto(data.produtoId);
     }
     async buscarPorId(data) {
-        const variacao = await this.variacoesProdutoRepository.buscarVariacaoDetalhadaPorId(data.id);
+        const variacao = await this.leituraVariacoesProdutoRepository.buscarVariacaoDetalhadaPorId(data.id);
         if (!variacao) {
             throw new Error("Variação de produto não encontrada.");
         }
         return variacao;
     }
     async atualizar(data) {
-        const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(data.id);
+        const variacao = await this.leituraVariacoesProdutoRepository.buscarVariacaoPorId(data.id);
         if (!variacao) {
             throw new Error("Variação de produto não encontrada.");
         }
         const produtoId = await this.validarProduto(data.produtoId, "Não é possível vincular a variação a um produto inativo.");
         const dadosVariacao = this.validadorDadosVariacaoProduto.validar(data);
-        const variacaoComMesmoSku = await this.variacoesProdutoRepository.buscarVariacaoPorSku(dadosVariacao.sku);
+        const variacaoComMesmoSku = await this.leituraVariacoesProdutoRepository.buscarVariacaoPorSku(dadosVariacao.sku);
         if (variacaoComMesmoSku && variacaoComMesmoSku.id !== data.id) {
             throw new Error("Já existe outra variação com esse SKU.");
         }
-        return this.variacoesProdutoRepository.atualizarVariacao(data.id, {
+        return this.escritaVariacoesProdutoRepository.atualizarVariacao(data.id, {
             produtoId,
             ...dadosVariacao,
         });
     }
     async atualizarEstoque(data) {
-        const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(data.id);
+        const variacao = await this.leituraVariacoesProdutoRepository.buscarVariacaoPorId(data.id);
         if (!variacao) {
             throw new Error("Variação de produto não encontrada.");
         }
@@ -169,32 +173,32 @@ class VariacoesProdutoService {
             estoqueAtual: variacao.estoque,
             motivo: data.motivo,
         });
-        return this.variacoesProdutoRepository.atualizarEstoque(data.id, {
+        return this.estoqueVariacoesProdutoRepository.atualizarEstoque(data.id, {
             ...dadosAjuste,
         });
     }
     async desativar(data) {
-        const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(data.id);
+        const variacao = await this.leituraVariacoesProdutoRepository.buscarVariacaoPorId(data.id);
         if (!variacao) {
             throw new Error("Variação de produto não encontrada.");
         }
         this.regraStatusVariacaoProduto.validarDesativacao(variacao);
-        return this.variacoesProdutoRepository.atualizarStatusVariacao(data.id, false);
+        return this.statusVariacoesProdutoRepository.atualizarStatusVariacao(data.id, false);
     }
     async ativar(data) {
-        const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(data.id);
+        const variacao = await this.leituraVariacoesProdutoRepository.buscarVariacaoPorId(data.id);
         if (!variacao) {
             throw new Error("Variação de produto não encontrada.");
         }
         this.regraStatusVariacaoProduto.validarAtivacao(variacao);
-        return this.variacoesProdutoRepository.atualizarStatusVariacao(data.id, true);
+        return this.statusVariacoesProdutoRepository.atualizarStatusVariacao(data.id, true);
     }
     async remover(data) {
-        const variacao = await this.variacoesProdutoRepository.buscarVariacaoPorId(data.id);
+        const variacao = await this.leituraVariacoesProdutoRepository.buscarVariacaoPorId(data.id);
         if (!variacao) {
             throw new Error("Variação de produto não encontrada.");
         }
-        const variacaoRemovida = await this.variacoesProdutoRepository.atualizarStatusVariacao(data.id, false);
+        const variacaoRemovida = await this.statusVariacoesProdutoRepository.atualizarStatusVariacao(data.id, false);
         return {
             message: "Variação removida com sucesso.",
             variacao: variacaoRemovida,
@@ -206,4 +210,4 @@ const validadorEstoqueVariacaoProduto = new ValidadorEstoqueVariacaoProdutoPadra
 const validadorDadosVariacaoProduto = new ValidadorDadosVariacaoProdutoPadrao(validadorEstoqueVariacaoProduto);
 const calculadoraAjusteEstoqueVariacaoProduto = new CalculadoraAjusteEstoqueVariacaoProdutoPadrao();
 const regraStatusVariacaoProduto = new RegraStatusVariacaoProdutoPadrao();
-exports.variacoesProdutoService = new VariacoesProdutoService(variacoes_produto_repository_1.variacoesProdutoRepository, validadorDadosVariacaoProduto, validadorEstoqueVariacaoProduto, calculadoraAjusteEstoqueVariacaoProduto, regraStatusVariacaoProduto);
+exports.variacoesProdutoService = new VariacoesProdutoService(variacoes_produto_repository_1.variacoesProdutoRepository, variacoes_produto_repository_1.variacoesProdutoRepository, variacoes_produto_repository_1.variacoesProdutoRepository, variacoes_produto_repository_1.variacoesProdutoRepository, variacoes_produto_repository_1.variacoesProdutoRepository, validadorDadosVariacaoProduto, validadorEstoqueVariacaoProduto, calculadoraAjusteEstoqueVariacaoProduto, regraStatusVariacaoProduto);

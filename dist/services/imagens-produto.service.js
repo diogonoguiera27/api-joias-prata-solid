@@ -25,19 +25,22 @@ class ValidadorDadosImagemProdutoPadrao {
 }
 exports.ValidadorDadosImagemProdutoPadrao = ValidadorDadosImagemProdutoPadrao;
 class RegraImagemPrincipalProdutoUnica {
-    constructor(imagensProdutoRepository) {
-        this.imagensProdutoRepository = imagensProdutoRepository;
+    constructor(imagemPrincipalProdutoRepository) {
+        this.imagemPrincipalProdutoRepository = imagemPrincipalProdutoRepository;
     }
     async aplicar(produtoId, principal) {
         if (principal) {
-            await this.imagensProdutoRepository.removerPrincipalDasImagens(produtoId);
+            await this.imagemPrincipalProdutoRepository.removerPrincipalDasImagens(produtoId);
         }
     }
 }
 exports.RegraImagemPrincipalProdutoUnica = RegraImagemPrincipalProdutoUnica;
 class ImagensProdutoService {
-    constructor(imagensProdutoRepository, validadorDadosImagemProduto, regraImagemPrincipalProduto) {
-        this.imagensProdutoRepository = imagensProdutoRepository;
+    constructor(consultaProdutoImagemRepository, leituraImagensProdutoRepository, escritaImagensProdutoRepository, remocaoImagensProdutoRepository, validadorDadosImagemProduto, regraImagemPrincipalProduto) {
+        this.consultaProdutoImagemRepository = consultaProdutoImagemRepository;
+        this.leituraImagensProdutoRepository = leituraImagensProdutoRepository;
+        this.escritaImagensProdutoRepository = escritaImagensProdutoRepository;
+        this.remocaoImagensProdutoRepository = remocaoImagensProdutoRepository;
         this.validadorDadosImagemProduto = validadorDadosImagemProduto;
         this.regraImagemPrincipalProduto = regraImagemPrincipalProduto;
     }
@@ -46,7 +49,7 @@ class ImagensProdutoService {
             throw new Error("O produto é obrigatório.");
         }
         const produtoId = String(data.produtoId);
-        const produto = await this.imagensProdutoRepository.buscarProdutoPorId(produtoId);
+        const produto = await this.consultaProdutoImagemRepository.buscarProdutoPorId(produtoId);
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
@@ -55,7 +58,7 @@ class ImagensProdutoService {
         }
         const dadosImagem = this.validadorDadosImagemProduto.validar(data);
         await this.regraImagemPrincipalProduto.aplicar(produtoId, dadosImagem.principal);
-        return this.imagensProdutoRepository.criarImagem({
+        return this.escritaImagensProdutoRepository.criarImagem({
             produtoId,
             url: dadosImagem.url,
             textoAlt: dadosImagem.textoAlt,
@@ -63,49 +66,49 @@ class ImagensProdutoService {
         });
     }
     async listar() {
-        return this.imagensProdutoRepository.listarImagens();
+        return this.leituraImagensProdutoRepository.listarImagens();
     }
     async listarPorProduto(data) {
-        const produto = await this.imagensProdutoRepository.buscarProdutoPorId(data.produtoId);
+        const produto = await this.consultaProdutoImagemRepository.buscarProdutoPorId(data.produtoId);
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
-        return this.imagensProdutoRepository.listarImagensPorProduto(data.produtoId);
+        return this.leituraImagensProdutoRepository.listarImagensPorProduto(data.produtoId);
     }
     async buscarPorId(data) {
-        const imagem = await this.imagensProdutoRepository.buscarImagemDetalhadaPorId(data.id);
+        const imagem = await this.leituraImagensProdutoRepository.buscarImagemDetalhadaPorId(data.id);
         if (!imagem) {
             throw new Error("Imagem não encontrada.");
         }
         return imagem;
     }
     async atualizar(data) {
-        const imagem = await this.imagensProdutoRepository.buscarImagemPorId(data.id);
+        const imagem = await this.leituraImagensProdutoRepository.buscarImagemPorId(data.id);
         if (!imagem) {
             throw new Error("Imagem não encontrada.");
         }
         const dadosImagem = this.validadorDadosImagemProduto.validar(data);
         await this.regraImagemPrincipalProduto.aplicar(imagem.produtoId, dadosImagem.principal);
-        return this.imagensProdutoRepository.atualizarImagem(data.id, {
+        return this.escritaImagensProdutoRepository.atualizarImagem(data.id, {
             url: dadosImagem.url,
             textoAlt: dadosImagem.textoAlt,
             principal: dadosImagem.principal,
         });
     }
     async definirPrincipal(data) {
-        const imagem = await this.imagensProdutoRepository.buscarImagemPorId(data.id);
+        const imagem = await this.leituraImagensProdutoRepository.buscarImagemPorId(data.id);
         if (!imagem) {
             throw new Error("Imagem não encontrada.");
         }
         await this.regraImagemPrincipalProduto.aplicar(imagem.produtoId, true);
-        return this.imagensProdutoRepository.definirImagemPrincipal(data.id);
+        return this.escritaImagensProdutoRepository.definirImagemPrincipal(data.id);
     }
     async remover(data) {
-        const imagem = await this.imagensProdutoRepository.buscarImagemPorId(data.id);
+        const imagem = await this.leituraImagensProdutoRepository.buscarImagemPorId(data.id);
         if (!imagem) {
             throw new Error("Imagem não encontrada.");
         }
-        await this.imagensProdutoRepository.removerImagem(data.id);
+        await this.remocaoImagensProdutoRepository.removerImagem(data.id);
         return {
             message: "Imagem removida com sucesso.",
         };
@@ -114,4 +117,4 @@ class ImagensProdutoService {
 exports.ImagensProdutoService = ImagensProdutoService;
 const validadorDadosImagemProduto = new ValidadorDadosImagemProdutoPadrao();
 const regraImagemPrincipalProduto = new RegraImagemPrincipalProdutoUnica(imagens_produto_repository_1.imagensProdutoRepository);
-exports.imagensProdutoService = new ImagensProdutoService(imagens_produto_repository_1.imagensProdutoRepository, validadorDadosImagemProduto, regraImagemPrincipalProduto);
+exports.imagensProdutoService = new ImagensProdutoService(imagens_produto_repository_1.imagensProdutoRepository, imagens_produto_repository_1.imagensProdutoRepository, imagens_produto_repository_1.imagensProdutoRepository, imagens_produto_repository_1.imagensProdutoRepository, validadorDadosImagemProduto, regraImagemPrincipalProduto);

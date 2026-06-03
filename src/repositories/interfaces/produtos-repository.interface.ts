@@ -38,11 +38,18 @@ export interface ProdutoDetalhadoRepository extends ProdutoSimplesRepository {
   imagens: unknown[];
 }
 
-export interface IProdutosRepository {
+export interface IEscritaProdutosRepository {
   criarProduto(
     data: CriarProdutoRepositoryDTO
   ): Promise<ProdutoDetalhadoRepository>;
 
+  atualizarProduto(
+    id: string,
+    data: AtualizarProdutoRepositoryDTO
+  ): Promise<ProdutoDetalhadoRepository>;
+}
+
+export interface ILeituraProdutosRepository {
   listarProdutosAtivos(): Promise<ProdutoDetalhadoRepository[]>;
 
   buscarProdutoPorSlug(
@@ -58,18 +65,23 @@ export interface IProdutosRepository {
   buscarProdutoSimplesPorId(
     id: string
   ): Promise<ProdutoSimplesRepository | null>;
+}
 
+export interface IConsultaCategoriasProdutoRepository {
   buscarCategoriaPorId(
     categoriaId: string
   ): Promise<CategoriaProdutoRepository | null>;
+}
 
-  atualizarProduto(
-    id: string,
-    data: AtualizarProdutoRepositoryDTO
-  ): Promise<ProdutoDetalhadoRepository>;
-
+export interface IStatusProdutosRepository {
   atualizarStatusProduto(
     id: string,
     ativo: boolean
   ): Promise<ProdutoSimplesRepository>;
 }
+
+export interface IProdutosRepository
+  extends IEscritaProdutosRepository,
+    ILeituraProdutosRepository,
+    IConsultaCategoriasProdutoRepository,
+    IStatusProdutosRepository {}

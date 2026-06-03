@@ -55,14 +55,30 @@ interface PedidoParaPagamento {
   pagamento?: unknown | null;
 }
 
-export interface IPagamentosRepository {
+export interface ITransacaoPagamentosRepository {
   executarTransacao<T>(operacao: (tx: any) => Promise<T>): Promise<T>;
+}
+
+export interface IConsultaPedidoPagamentoRepository {
   buscarPedidoPorId(pedidoId: string): Promise<PedidoParaPagamento | null>;
+}
+
+export interface IEscritaPagamentosRepository {
   criarPagamento(data: {
     pedidoId: string;
     metodo: MetodoPagamento;
     valor: unknown;
   }): Promise<unknown>;
+  marcarPagamentoComoAprovado(id: string, tx?: any): Promise<unknown>;
+  atualizarStatusPagamento(
+    id: string,
+    status: StatusPagamento,
+    includePedido?: boolean
+  ): Promise<unknown>;
+  marcarPagamentoComoReembolsado(id: string, tx?: any): Promise<unknown>;
+}
+
+export interface ILeituraPagamentosRepository {
   listarPagamentos(): Promise<unknown[]>;
   buscarPagamentoPorId(id: string): Promise<unknown | null>;
   buscarPagamentoParaAprovacao(
@@ -75,18 +91,17 @@ export interface IPagamentosRepository {
   buscarPagamentoParaReembolso(
     id: string
   ): Promise<PagamentoParaReembolso | null>;
-  marcarPagamentoComoAprovado(id: string, tx?: any): Promise<unknown>;
-  atualizarStatusPagamento(
-    id: string,
-    status: StatusPagamento,
-    includePedido?: boolean
-  ): Promise<unknown>;
-  marcarPagamentoComoReembolsado(id: string, tx?: any): Promise<unknown>;
+}
+
+export interface IStatusPedidoPagamentoRepository {
   atualizarStatusPedido(
     id: string,
     status: StatusPedido,
     tx?: any
   ): Promise<unknown>;
+}
+
+export interface IEstoquePagamentoRepository {
   atualizarEstoqueVariacao(
     id: string,
     estoque: number,
@@ -102,6 +117,14 @@ export interface IPagamentosRepository {
     tx?: any
   ): Promise<unknown>;
 }
+
+export interface IPagamentosRepository
+  extends ITransacaoPagamentosRepository,
+    IConsultaPedidoPagamentoRepository,
+    IEscritaPagamentosRepository,
+    ILeituraPagamentosRepository,
+    IStatusPedidoPagamentoRepository,
+    IEstoquePagamentoRepository {}
 
 interface ItemEstoquePagamento {
   variacaoId: string;
@@ -238,7 +261,7 @@ export class RegraReembolsoPagamentoPadrao implements IRegraReembolsoPagamento {
 export class ProcessadorEstoquePagamentoPadrao
   implements IProcessadorEstoquePagamento
 {
-  constructor(private pagamentosRepository: IPagamentosRepository) {}
+  constructor(private estoquePagamentoRepository: IEstoquePagamentoRepository) {}
 
   async baixarEstoque(
     itens: ItemEstoquePagamento[],
@@ -246,13 +269,13 @@ export class ProcessadorEstoquePagamentoPadrao
     tx?: any
   ) {
     for (const item of itens) {
-      await this.pagamentosRepository.atualizarEstoqueVariacao(
+      await this.estoquePagamentoRepository.atualizarEstoqueVariacao(
         item.variacaoId,
         item.variacao.estoque - item.quantidade,
         tx
       );
 
-      await this.pagamentosRepository.criarMovimentacaoEstoque(
+      await this.estoquePagamentoRepository.criarMovimentacaoEstoque(
         {
           variacaoId: item.variacaoId,
           tipo: TipoMovimentacaoEstoque.VENDA,
@@ -270,13 +293,13 @@ export class ProcessadorEstoquePagamentoPadrao
     tx?: any
   ) {
     for (const item of itens) {
-      await this.pagamentosRepository.atualizarEstoqueVariacao(
+      await this.estoquePagamentoRepository.atualizarEstoqueVariacao(
         item.variacaoId,
         item.variacao.estoque + item.quantidade,
         tx
       );
 
-      await this.pagamentosRepository.criarMovimentacaoEstoque(
+      await this.estoquePagamentoRepository.criarMovimentacaoEstoque(
         {
           variacaoId: item.variacaoId,
           tipo: TipoMovimentacaoEstoque.DEVOLUCAO_CANCELAMENTO,
@@ -291,7 +314,11 @@ export class ProcessadorEstoquePagamentoPadrao
 
 export class PagamentosService {
   constructor(
-    private pagamentosRepository: IPagamentosRepository,
+    private transacaoPagamentosRepository: ITransacaoPagamentosRepository,
+    private consultaPedidoPagamentoRepository: IConsultaPedidoPagamentoRepository,
+    private leituraPagamentosRepository: ILeituraPagamentosRepository,
+    private escritaPagamentosRepository: IEscritaPagamentosRepository,
+    private statusPedidoPagamentoRepository: IStatusPedidoPagamentoRepository,
     private validadorMetodoPagamento: IValidadorMetodoPagamento,
     private regraAprovacaoPagamento: IRegraAprovacaoPagamento,
     private regraRecusaPagamento: IRegraRecusaPagamento,
@@ -310,7 +337,8 @@ export class PagamentosService {
     }
 
     const pedidoId = String(data.pedidoId);
-    const pedido = await this.pagamentosRepository.buscarPedidoPorId(pedidoId);
+    const pedido =
+      await this.consultaPedidoPagamentoRepository.buscarPedidoPorId(pedidoId);
 
     if (!pedido) {
       throw new Error("Pedido não encontrado.");
@@ -330,7 +358,7 @@ export class PagamentosService {
 
     const metodo = this.validarMetodoPagamento(data.metodo);
 
-    return this.pagamentosRepository.criarPagamento({
+    return this.escritaPagamentosRepository.criarPagamento({
       pedidoId,
       metodo,
       valor: pedido.total,
@@ -338,11 +366,11 @@ export class PagamentosService {
   }
 
   async listar() {
-    return this.pagamentosRepository.listarPagamentos();
+    return this.leituraPagamentosRepository.listarPagamentos();
   }
 
   async buscarPorId(data: BuscarPagamentoPorIdDTO) {
-    const pagamento = await this.pagamentosRepository.buscarPagamentoPorId(
+    const pagamento = await this.leituraPagamentosRepository.buscarPagamentoPorId(
       data.id
     );
 
@@ -355,7 +383,9 @@ export class PagamentosService {
 
   async aprovar(data: AprovarPagamentoDTO) {
     const pagamento =
-      await this.pagamentosRepository.buscarPagamentoParaAprovacao(data.id);
+      await this.leituraPagamentosRepository.buscarPagamentoParaAprovacao(
+        data.id
+      );
 
     if (!pagamento) {
       throw new Error("Pagamento não encontrado.");
@@ -363,14 +393,14 @@ export class PagamentosService {
 
     this.regraAprovacaoPagamento.validar(pagamento);
 
-    return this.pagamentosRepository.executarTransacao(async (tx) => {
+    return this.transacaoPagamentosRepository.executarTransacao(async (tx) => {
       const pagamentoAprovado =
-        await this.pagamentosRepository.marcarPagamentoComoAprovado(
+        await this.escritaPagamentosRepository.marcarPagamentoComoAprovado(
           data.id,
           tx
         );
       const pedidoAtualizado =
-        await this.pagamentosRepository.atualizarStatusPedido(
+        await this.statusPedidoPagamentoRepository.atualizarStatusPedido(
           pagamento.pedidoId,
           StatusPedido.PAGO,
           tx
@@ -390,9 +420,8 @@ export class PagamentosService {
   }
 
   async recusar(data: RecusarPagamentoDTO) {
-    const pagamento = await this.pagamentosRepository.buscarPagamentoComPedido(
-      data.id
-    );
+    const pagamento =
+      await this.leituraPagamentosRepository.buscarPagamentoComPedido(data.id);
 
     if (!pagamento) {
       throw new Error("Pagamento não encontrado.");
@@ -400,7 +429,7 @@ export class PagamentosService {
 
     this.regraRecusaPagamento.validar(pagamento);
 
-    return this.pagamentosRepository.atualizarStatusPagamento(
+    return this.escritaPagamentosRepository.atualizarStatusPagamento(
       data.id,
       StatusPagamento.RECUSADO
     );
@@ -408,7 +437,9 @@ export class PagamentosService {
 
   async cancelar(data: CancelarPagamentoDTO) {
     const pagamento =
-      await this.pagamentosRepository.buscarPagamentoSimplesPorId(data.id);
+      await this.leituraPagamentosRepository.buscarPagamentoSimplesPorId(
+        data.id
+      );
 
     if (!pagamento) {
       throw new Error("Pagamento não encontrado.");
@@ -416,7 +447,7 @@ export class PagamentosService {
 
     this.regraCancelamentoPagamento.validar(pagamento);
 
-    return this.pagamentosRepository.atualizarStatusPagamento(
+    return this.escritaPagamentosRepository.atualizarStatusPagamento(
       data.id,
       StatusPagamento.CANCELADO
     );
@@ -424,7 +455,9 @@ export class PagamentosService {
 
   async reembolsar(data: ReembolsarPagamentoDTO) {
     const pagamento =
-      await this.pagamentosRepository.buscarPagamentoParaReembolso(data.id);
+      await this.leituraPagamentosRepository.buscarPagamentoParaReembolso(
+        data.id
+      );
 
     if (!pagamento) {
       throw new Error("Pagamento não encontrado.");
@@ -432,14 +465,14 @@ export class PagamentosService {
 
     this.regraReembolsoPagamento.validar(pagamento);
 
-    return this.pagamentosRepository.executarTransacao(async (tx) => {
+    return this.transacaoPagamentosRepository.executarTransacao(async (tx) => {
       const pagamentoReembolsado =
-        await this.pagamentosRepository.marcarPagamentoComoReembolsado(
+        await this.escritaPagamentosRepository.marcarPagamentoComoReembolsado(
           data.id,
           tx
         );
       const pedidoReembolsado =
-        await this.pagamentosRepository.atualizarStatusPedido(
+        await this.statusPedidoPagamentoRepository.atualizarStatusPedido(
           pagamento.pedidoId,
           StatusPedido.REEMBOLSADO,
           tx
@@ -469,6 +502,10 @@ const processadorEstoquePagamento = new ProcessadorEstoquePagamentoPadrao(
 );
 
 export const pagamentosService = new PagamentosService(
+  pagamentosRepository,
+  pagamentosRepository,
+  pagamentosRepository,
+  pagamentosRepository,
   pagamentosRepository,
   validadorMetodoPagamento,
   regraAprovacaoPagamento,

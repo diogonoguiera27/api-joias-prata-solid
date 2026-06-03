@@ -48,23 +48,41 @@ interface ItemExistenteCarrinhoRepository {
   quantidade: number;
 }
 
-export interface ICarrinhosRepository {
+export interface IConsultaClienteCarrinhoRepository {
   buscarClientePorId(clienteId: string): Promise<unknown | null>;
+}
+
+export interface IEscritaCarrinhosRepository {
   criarCarrinho(clienteId?: string | null): Promise<unknown>;
+}
+
+export interface ILeituraCarrinhosRepository {
   listarCarrinhos(): Promise<unknown[]>;
   buscarCarrinhoPorId(id: string): Promise<unknown | null>;
   buscarCarrinhoSimplesPorId(
     id: string
   ): Promise<CarrinhoSimplesRepository | null>;
+}
+
+export interface IConsultaCatalogoCarrinhoRepository {
   buscarProdutoPorId(produtoId: string): Promise<ProdutoCarrinho | null>;
   buscarVariacaoPorId(
     variacaoId: string
   ): Promise<VariacaoCarrinho | null>;
+}
+
+export interface ILeituraItensCarrinhoRepository {
   buscarItemExistente(
     carrinhoId: string,
     produtoId: string,
     variacaoId: string
   ): Promise<ItemExistenteCarrinhoRepository | null>;
+  buscarItemPorId(
+    itemId: string
+  ): Promise<ItemCarrinhoComProdutoVariacao | null>;
+}
+
+export interface IEscritaItensCarrinhoRepository {
   atualizarItemCarrinho(
     itemId: string,
     data: TotaisItemCarrinho & { quantidade: number }
@@ -77,16 +95,29 @@ export interface ICarrinhosRepository {
       quantidade: number;
     }
   ): Promise<unknown>;
-  buscarItemPorId(
-    itemId: string
-  ): Promise<ItemCarrinhoComProdutoVariacao | null>;
+}
+
+export interface IRemocaoItensCarrinhoRepository {
   removerItemCarrinho(itemId: string): Promise<unknown>;
   limparItensDoCarrinho(carrinhoId: string): Promise<unknown>;
+}
+
+export interface IStatusCarrinhosRepository {
   atualizarStatusCarrinho(
     carrinhoId: string,
     status: StatusCarrinho
   ): Promise<unknown>;
 }
+
+export interface ICarrinhosRepository
+  extends IConsultaClienteCarrinhoRepository,
+    IEscritaCarrinhosRepository,
+    ILeituraCarrinhosRepository,
+    IConsultaCatalogoCarrinhoRepository,
+    ILeituraItensCarrinhoRepository,
+    IEscritaItensCarrinhoRepository,
+    IRemocaoItensCarrinhoRepository,
+    IStatusCarrinhosRepository {}
 
 export interface ICalculadoraTotaisItemCarrinho {
   calcular(
@@ -216,7 +247,14 @@ export class RegraItemCarrinhoPadrao implements IRegraItemCarrinho {
 
 export class CarrinhosService {
   constructor(
-    private carrinhosRepository: ICarrinhosRepository,
+    private consultaClienteCarrinhoRepository: IConsultaClienteCarrinhoRepository,
+    private escritaCarrinhosRepository: IEscritaCarrinhosRepository,
+    private leituraCarrinhosRepository: ILeituraCarrinhosRepository,
+    private consultaCatalogoCarrinhoRepository: IConsultaCatalogoCarrinhoRepository,
+    private leituraItensCarrinhoRepository: ILeituraItensCarrinhoRepository,
+    private escritaItensCarrinhoRepository: IEscritaItensCarrinhoRepository,
+    private remocaoItensCarrinhoRepository: IRemocaoItensCarrinhoRepository,
+    private statusCarrinhosRepository: IStatusCarrinhosRepository,
     private calculadoraTotaisItemCarrinho: ICalculadoraTotaisItemCarrinho,
     private calculadoraQuantidadeFinalCarrinho: ICalculadoraQuantidadeFinalCarrinho,
     private validadorQuantidadeCarrinho: IValidadorQuantidadeCarrinho,
@@ -228,7 +266,7 @@ export class CarrinhosService {
     const { clienteId } = data;
 
     if (clienteId) {
-      const cliente = await this.carrinhosRepository.buscarClientePorId(
+      const cliente = await this.consultaClienteCarrinhoRepository.buscarClientePorId(
         String(clienteId)
       );
 
@@ -237,7 +275,7 @@ export class CarrinhosService {
       }
     }
 
-    const carrinho = await this.carrinhosRepository.criarCarrinho(
+    const carrinho = await this.escritaCarrinhosRepository.criarCarrinho(
       clienteId ? String(clienteId) : null
     );
 
@@ -245,13 +283,15 @@ export class CarrinhosService {
   }
 
   async listar() {
-    const carrinhos = await this.carrinhosRepository.listarCarrinhos();
+    const carrinhos = await this.leituraCarrinhosRepository.listarCarrinhos();
 
     return carrinhos;
   }
 
   async buscarPorId(id: string) {
-    const carrinho = await this.carrinhosRepository.buscarCarrinhoPorId(id);
+    const carrinho = await this.leituraCarrinhosRepository.buscarCarrinhoPorId(
+      id
+    );
 
     if (!carrinho) {
       throw new Error("Carrinho não encontrado.");
@@ -279,9 +319,10 @@ export class CarrinhosService {
       quantidade
     );
 
-    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
-      carrinhoId
-    );
+    const carrinho =
+      await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(
+        carrinhoId
+      );
 
     if (!carrinho) {
       throw new Error("Carrinho não encontrado.");
@@ -289,7 +330,7 @@ export class CarrinhosService {
 
     this.regraCarrinhoAtivo.validar(carrinho.status);
 
-    const produto = await this.carrinhosRepository.buscarProdutoPorId(
+    const produto = await this.consultaCatalogoCarrinhoRepository.buscarProdutoPorId(
       String(produtoId)
     );
 
@@ -299,7 +340,7 @@ export class CarrinhosService {
 
     this.regraItemCarrinho.validarProduto(produto);
 
-    const variacao = await this.carrinhosRepository.buscarVariacaoPorId(
+    const variacao = await this.consultaCatalogoCarrinhoRepository.buscarVariacaoPorId(
       String(variacaoId)
     );
 
@@ -309,11 +350,12 @@ export class CarrinhosService {
 
     this.regraItemCarrinho.validarVariacao(produto, variacao);
 
-    const itemExistente = await this.carrinhosRepository.buscarItemExistente(
-      carrinhoId,
-      String(produtoId),
-      String(variacaoId)
-    );
+    const itemExistente =
+      await this.leituraItensCarrinhoRepository.buscarItemExistente(
+        carrinhoId,
+        String(produtoId),
+        String(variacaoId)
+      );
 
     const quantidadeFinal = this.calculadoraQuantidadeFinalCarrinho.calcular(
       itemExistente,
@@ -329,14 +371,17 @@ export class CarrinhosService {
     );
 
     if (itemExistente) {
-      return this.carrinhosRepository.atualizarItemCarrinho(itemExistente.id, {
-        quantidade: quantidadeFinal,
-        precoUnitario,
-        subtotal,
-      });
+      return this.escritaItensCarrinhoRepository.atualizarItemCarrinho(
+        itemExistente.id,
+        {
+          quantidade: quantidadeFinal,
+          precoUnitario,
+          subtotal,
+        }
+      );
     }
 
-    return this.carrinhosRepository.criarItemCarrinho({
+    return this.escritaItensCarrinhoRepository.criarItemCarrinho({
       carrinhoId,
       produtoId: String(produtoId),
       variacaoId: String(variacaoId),
@@ -349,9 +394,10 @@ export class CarrinhosService {
   async atualizarQuantidadeItem(data: AtualizarQuantidadeItemCarrinhoDTO) {
     const { carrinhoId, itemId, quantidade } = data;
 
-    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
-      carrinhoId
-    );
+    const carrinho =
+      await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(
+        carrinhoId
+      );
 
     if (!carrinho) {
       throw new Error("Carrinho não encontrado.");
@@ -359,7 +405,9 @@ export class CarrinhosService {
 
     this.regraCarrinhoAtivo.validar(carrinho.status);
 
-    const item = await this.carrinhosRepository.buscarItemPorId(itemId);
+    const item = await this.leituraItensCarrinhoRepository.buscarItemPorId(
+      itemId
+    );
 
     this.regraItemCarrinho.validarPertencimentoItem(item, carrinhoId);
 
@@ -378,7 +426,8 @@ export class CarrinhosService {
       quantidadeNumber
     );
 
-    const itemAtualizado = await this.carrinhosRepository.atualizarItemCarrinho(
+    const itemAtualizado =
+      await this.escritaItensCarrinhoRepository.atualizarItemCarrinho(
       itemId,
       {
         quantidade: quantidadeNumber,
@@ -393,9 +442,10 @@ export class CarrinhosService {
   async removerItem(data: RemoverItemCarrinhoDTO) {
     const { carrinhoId, itemId } = data;
 
-    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
-      carrinhoId
-    );
+    const carrinho =
+      await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(
+        carrinhoId
+      );
 
     if (!carrinho) {
       throw new Error("Carrinho não encontrado.");
@@ -403,11 +453,13 @@ export class CarrinhosService {
 
     this.regraCarrinhoAtivo.validar(carrinho.status);
 
-    const item = await this.carrinhosRepository.buscarItemPorId(itemId);
+    const item = await this.leituraItensCarrinhoRepository.buscarItemPorId(
+      itemId
+    );
 
     this.regraItemCarrinho.validarPertencimentoItem(item, carrinhoId);
 
-    await this.carrinhosRepository.removerItemCarrinho(itemId);
+    await this.remocaoItensCarrinhoRepository.removerItemCarrinho(itemId);
 
     return {
       message: "Item removido do carrinho com sucesso.",
@@ -417,9 +469,10 @@ export class CarrinhosService {
   async limpar(data: LimparCarrinhoDTO) {
     const { carrinhoId } = data;
 
-    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
-      carrinhoId
-    );
+    const carrinho =
+      await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(
+        carrinhoId
+      );
 
     if (!carrinho) {
       throw new Error("Carrinho não encontrado.");
@@ -430,7 +483,9 @@ export class CarrinhosService {
       "Não é possível limpar um carrinho que não está ativo."
     );
 
-    await this.carrinhosRepository.limparItensDoCarrinho(carrinhoId);
+    await this.remocaoItensCarrinhoRepository.limparItensDoCarrinho(
+      carrinhoId
+    );
 
     return {
       message: "Carrinho limpo com sucesso.",
@@ -440,9 +495,10 @@ export class CarrinhosService {
   async abandonar(data: AbandonarCarrinhoDTO) {
     const { carrinhoId } = data;
 
-    const carrinho = await this.carrinhosRepository.buscarCarrinhoSimplesPorId(
-      carrinhoId
-    );
+    const carrinho =
+      await this.leituraCarrinhosRepository.buscarCarrinhoSimplesPorId(
+        carrinhoId
+      );
 
     if (!carrinho) {
       throw new Error("Carrinho não encontrado.");
@@ -454,7 +510,7 @@ export class CarrinhosService {
     );
 
     const carrinhoAtualizado =
-      await this.carrinhosRepository.atualizarStatusCarrinho(
+      await this.statusCarrinhosRepository.atualizarStatusCarrinho(
         carrinhoId,
         StatusCarrinho.ABANDONADO
       );
@@ -471,6 +527,13 @@ const regraCarrinhoAtivo = new RegraCarrinhoAtivoPadrao();
 const regraItemCarrinho = new RegraItemCarrinhoPadrao();
 
 export const carrinhosService = new CarrinhosService(
+  carrinhosRepository,
+  carrinhosRepository,
+  carrinhosRepository,
+  carrinhosRepository,
+  carrinhosRepository,
+  carrinhosRepository,
+  carrinhosRepository,
   carrinhosRepository,
   calculadoraTotaisItemCarrinho,
   calculadoraQuantidadeFinalCarrinho,

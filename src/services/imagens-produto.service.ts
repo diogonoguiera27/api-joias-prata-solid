@@ -22,26 +22,45 @@ interface ImagemProdutoRepository {
   produtoId: string;
 }
 
-export interface IImagensProdutoRepository {
+export interface IConsultaProdutoImagemRepository {
   buscarProdutoPorId(produtoId: string): Promise<ProdutoImagemRepository | null>;
+}
+
+export interface IEscritaImagensProdutoRepository {
   criarImagem(data: {
     produtoId: string;
     url: string;
     textoAlt?: string | null;
     principal: boolean;
   }): Promise<unknown>;
-  listarImagens(): Promise<unknown[]>;
-  listarImagensPorProduto(produtoId: string): Promise<unknown[]>;
-  buscarImagemPorId(id: string): Promise<ImagemProdutoRepository | null>;
-  buscarImagemDetalhadaPorId(id: string): Promise<unknown | null>;
-  removerPrincipalDasImagens(produtoId: string): Promise<unknown>;
   atualizarImagem(
     id: string,
     data: DadosImagemProdutoValidados
   ): Promise<unknown>;
   definirImagemPrincipal(id: string): Promise<unknown>;
+}
+
+export interface ILeituraImagensProdutoRepository {
+  listarImagens(): Promise<unknown[]>;
+  listarImagensPorProduto(produtoId: string): Promise<unknown[]>;
+  buscarImagemPorId(id: string): Promise<ImagemProdutoRepository | null>;
+  buscarImagemDetalhadaPorId(id: string): Promise<unknown | null>;
+}
+
+export interface IImagemPrincipalProdutoRepository {
+  removerPrincipalDasImagens(produtoId: string): Promise<unknown>;
+}
+
+export interface IRemocaoImagensProdutoRepository {
   removerImagem(id: string): Promise<unknown>;
 }
+
+export interface IImagensProdutoRepository
+  extends IConsultaProdutoImagemRepository,
+    IEscritaImagensProdutoRepository,
+    ILeituraImagensProdutoRepository,
+    IImagemPrincipalProdutoRepository,
+    IRemocaoImagensProdutoRepository {}
 
 export interface IValidadorDadosImagemProduto {
   validar(data: CriarImagemProdutoDTO | AtualizarImagemProdutoDTO): DadosImagemProdutoValidados;
@@ -82,18 +101,25 @@ export class ValidadorDadosImagemProdutoPadrao
 export class RegraImagemPrincipalProdutoUnica
   implements IRegraImagemPrincipalProduto
 {
-  constructor(private imagensProdutoRepository: IImagensProdutoRepository) {}
+  constructor(
+    private imagemPrincipalProdutoRepository: IImagemPrincipalProdutoRepository
+  ) {}
 
   async aplicar(produtoId: string, principal: boolean) {
     if (principal) {
-      await this.imagensProdutoRepository.removerPrincipalDasImagens(produtoId);
+      await this.imagemPrincipalProdutoRepository.removerPrincipalDasImagens(
+        produtoId
+      );
     }
   }
 }
 
 export class ImagensProdutoService {
   constructor(
-    private imagensProdutoRepository: IImagensProdutoRepository,
+    private consultaProdutoImagemRepository: IConsultaProdutoImagemRepository,
+    private leituraImagensProdutoRepository: ILeituraImagensProdutoRepository,
+    private escritaImagensProdutoRepository: IEscritaImagensProdutoRepository,
+    private remocaoImagensProdutoRepository: IRemocaoImagensProdutoRepository,
     private validadorDadosImagemProduto: IValidadorDadosImagemProduto,
     private regraImagemPrincipalProduto: IRegraImagemPrincipalProduto
   ) {}
@@ -104,9 +130,8 @@ export class ImagensProdutoService {
     }
 
     const produtoId = String(data.produtoId);
-    const produto = await this.imagensProdutoRepository.buscarProdutoPorId(
-      produtoId
-    );
+    const produto =
+      await this.consultaProdutoImagemRepository.buscarProdutoPorId(produtoId);
 
     if (!produto) {
       throw new Error("Produto não encontrado.");
@@ -122,7 +147,7 @@ export class ImagensProdutoService {
       dadosImagem.principal
     );
 
-    return this.imagensProdutoRepository.criarImagem({
+    return this.escritaImagensProdutoRepository.criarImagem({
       produtoId,
       url: dadosImagem.url,
       textoAlt: dadosImagem.textoAlt,
@@ -131,11 +156,11 @@ export class ImagensProdutoService {
   }
 
   async listar() {
-    return this.imagensProdutoRepository.listarImagens();
+    return this.leituraImagensProdutoRepository.listarImagens();
   }
 
   async listarPorProduto(data: ListarImagensProdutoDTO) {
-    const produto = await this.imagensProdutoRepository.buscarProdutoPorId(
+    const produto = await this.consultaProdutoImagemRepository.buscarProdutoPorId(
       data.produtoId
     );
 
@@ -143,14 +168,16 @@ export class ImagensProdutoService {
       throw new Error("Produto não encontrado.");
     }
 
-    return this.imagensProdutoRepository.listarImagensPorProduto(
+    return this.leituraImagensProdutoRepository.listarImagensPorProduto(
       data.produtoId
     );
   }
 
   async buscarPorId(data: BuscarImagemProdutoPorIdDTO) {
     const imagem =
-      await this.imagensProdutoRepository.buscarImagemDetalhadaPorId(data.id);
+      await this.leituraImagensProdutoRepository.buscarImagemDetalhadaPorId(
+        data.id
+      );
 
     if (!imagem) {
       throw new Error("Imagem não encontrada.");
@@ -160,7 +187,7 @@ export class ImagensProdutoService {
   }
 
   async atualizar(data: AtualizarImagemProdutoDTO) {
-    const imagem = await this.imagensProdutoRepository.buscarImagemPorId(
+    const imagem = await this.leituraImagensProdutoRepository.buscarImagemPorId(
       data.id
     );
 
@@ -174,7 +201,7 @@ export class ImagensProdutoService {
       dadosImagem.principal
     );
 
-    return this.imagensProdutoRepository.atualizarImagem(data.id, {
+    return this.escritaImagensProdutoRepository.atualizarImagem(data.id, {
       url: dadosImagem.url,
       textoAlt: dadosImagem.textoAlt,
       principal: dadosImagem.principal,
@@ -182,7 +209,7 @@ export class ImagensProdutoService {
   }
 
   async definirPrincipal(data: DefinirImagemPrincipalDTO) {
-    const imagem = await this.imagensProdutoRepository.buscarImagemPorId(
+    const imagem = await this.leituraImagensProdutoRepository.buscarImagemPorId(
       data.id
     );
 
@@ -192,11 +219,11 @@ export class ImagensProdutoService {
 
     await this.regraImagemPrincipalProduto.aplicar(imagem.produtoId, true);
 
-    return this.imagensProdutoRepository.definirImagemPrincipal(data.id);
+    return this.escritaImagensProdutoRepository.definirImagemPrincipal(data.id);
   }
 
   async remover(data: RemoverImagemProdutoDTO) {
-    const imagem = await this.imagensProdutoRepository.buscarImagemPorId(
+    const imagem = await this.leituraImagensProdutoRepository.buscarImagemPorId(
       data.id
     );
 
@@ -204,7 +231,7 @@ export class ImagensProdutoService {
       throw new Error("Imagem não encontrada.");
     }
 
-    await this.imagensProdutoRepository.removerImagem(data.id);
+    await this.remocaoImagensProdutoRepository.removerImagem(data.id);
 
     return {
       message: "Imagem removida com sucesso.",
@@ -218,6 +245,9 @@ const regraImagemPrincipalProduto = new RegraImagemPrincipalProdutoUnica(
 );
 
 export const imagensProdutoService = new ImagensProdutoService(
+  imagensProdutoRepository,
+  imagensProdutoRepository,
+  imagensProdutoRepository,
   imagensProdutoRepository,
   validadorDadosImagemProduto,
   regraImagemPrincipalProduto

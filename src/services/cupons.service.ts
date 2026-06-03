@@ -36,20 +36,31 @@ interface CupomComDesconto extends CupomAplicavel {
   valorDesconto: unknown;
 }
 
-export interface ICuponsRepository {
+export interface IEscritaCuponsRepository {
   criarCupom(data: DadosCupomValidados): Promise<CupomComDesconto>;
-  listarCupons(): Promise<CupomComDesconto[]>;
-  buscarCupomPorId(id: string): Promise<CupomComDesconto | null>;
-  buscarCupomPorCodigo(codigo: string): Promise<CupomComDesconto | null>;
   atualizarCupom(
     id: string,
     data: DadosCupomValidados
   ): Promise<CupomComDesconto>;
+}
+
+export interface ILeituraCuponsRepository {
+  listarCupons(): Promise<CupomComDesconto[]>;
+  buscarCupomPorId(id: string): Promise<CupomComDesconto | null>;
+  buscarCupomPorCodigo(codigo: string): Promise<CupomComDesconto | null>;
+}
+
+export interface IStatusCuponsRepository {
   atualizarStatusCupom(
     id: string,
     ativo: boolean
   ): Promise<CupomComDesconto>;
 }
+
+export interface ICuponsRepository
+  extends IEscritaCuponsRepository,
+    ILeituraCuponsRepository,
+    IStatusCuponsRepository {}
 
 interface ValoresAplicacaoCupom {
   subtotal: number;
@@ -353,7 +364,9 @@ export class RegraStatusCupomPadrao implements IRegraStatusCupom {
 
 export class CuponsService {
   constructor(
-    private cuponsRepository: ICuponsRepository,
+    private leituraCuponsRepository: ILeituraCuponsRepository,
+    private escritaCuponsRepository: IEscritaCuponsRepository,
+    private statusCuponsRepository: IStatusCuponsRepository,
     private normalizadorCodigoCupom: INormalizadorCodigoCupom,
     private validadorDadosCupom: IValidadorDadosCupom,
     private validadorValoresAplicacaoCupom: IValidadorValoresAplicacaoCupom,
@@ -365,24 +378,26 @@ export class CuponsService {
   async criar(data: CriarCupomDTO) {
     const dadosCupom = this.validadorDadosCupom.validar(data);
 
-    const cupomExistente = await this.cuponsRepository.buscarCupomPorCodigo(
-      dadosCupom.codigo
-    );
+    const cupomExistente =
+      await this.leituraCuponsRepository.buscarCupomPorCodigo(
+        dadosCupom.codigo
+      );
 
     if (cupomExistente) {
       throw new Error("Já existe um cupom com esse código.");
     }
 
-    return this.cuponsRepository.criarCupom(dadosCupom);
+    return this.escritaCuponsRepository.criarCupom(dadosCupom);
   }
 
   async listar() {
-    return this.cuponsRepository.listarCupons();
+    return this.leituraCuponsRepository.listarCupons();
   }
 
   async buscarPorCodigo(data: BuscarCupomPorCodigoDTO) {
     const codigo = this.normalizadorCodigoCupom.normalizar(data.codigo);
-    const cupom = await this.cuponsRepository.buscarCupomPorCodigo(codigo);
+    const cupom =
+      await this.leituraCuponsRepository.buscarCupomPorCodigo(codigo);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
@@ -392,7 +407,7 @@ export class CuponsService {
   }
 
   async buscarPorId(data: BuscarCupomPorIdDTO) {
-    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+    const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
@@ -403,7 +418,8 @@ export class CuponsService {
 
   async aplicar(data: AplicarCupomDTO) {
     const codigo = this.normalizadorCodigoCupom.normalizar(data.codigo);
-    const cupom = await this.cuponsRepository.buscarCupomPorCodigo(codigo);
+    const cupom =
+      await this.leituraCuponsRepository.buscarCupomPorCodigo(codigo);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
@@ -428,7 +444,7 @@ export class CuponsService {
   }
 
   async atualizar(data: AtualizarCupomDTO) {
-    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+    const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
@@ -437,17 +453,19 @@ export class CuponsService {
     const dadosCupom = this.validadorDadosCupom.validar(data);
 
     const cupomComMesmoCodigo =
-      await this.cuponsRepository.buscarCupomPorCodigo(dadosCupom.codigo);
+      await this.leituraCuponsRepository.buscarCupomPorCodigo(
+        dadosCupom.codigo
+      );
 
     if (cupomComMesmoCodigo && cupomComMesmoCodigo.id !== data.id) {
       throw new Error("Já existe outro cupom com esse código.");
     }
 
-    return this.cuponsRepository.atualizarCupom(data.id, dadosCupom);
+    return this.escritaCuponsRepository.atualizarCupom(data.id, dadosCupom);
   }
 
   async ativar(data: AtivarCupomDTO) {
-    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+    const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
@@ -455,11 +473,11 @@ export class CuponsService {
 
     this.regraStatusCupom.validarAtivacao(cupom);
 
-    return this.cuponsRepository.atualizarStatusCupom(data.id, true);
+    return this.statusCuponsRepository.atualizarStatusCupom(data.id, true);
   }
 
   async desativar(data: DesativarCupomDTO) {
-    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+    const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
@@ -467,17 +485,17 @@ export class CuponsService {
 
     this.regraStatusCupom.validarDesativacao(cupom);
 
-    return this.cuponsRepository.atualizarStatusCupom(data.id, false);
+    return this.statusCuponsRepository.atualizarStatusCupom(data.id, false);
   }
 
   async remover(data: RemoverCupomDTO) {
-    const cupom = await this.cuponsRepository.buscarCupomPorId(data.id);
+    const cupom = await this.leituraCuponsRepository.buscarCupomPorId(data.id);
 
     if (!cupom) {
       throw new Error("Cupom não encontrado.");
     }
 
-    const cupomRemovido = await this.cuponsRepository.atualizarStatusCupom(
+    const cupomRemovido = await this.statusCuponsRepository.atualizarStatusCupom(
       data.id,
       false
     );
@@ -500,6 +518,8 @@ const calculadorasDescontoCupom = new CalculadorasDescontoCupomPadrao();
 const regraStatusCupom = new RegraStatusCupomPadrao();
 
 export const cuponsService = new CuponsService(
+  cuponsRepository,
+  cuponsRepository,
   cuponsRepository,
   normalizadorCodigoCupom,
   validadorDadosCupom,

@@ -54,70 +54,72 @@ class RegraStatusCategoriaPadrao {
 }
 exports.RegraStatusCategoriaPadrao = RegraStatusCategoriaPadrao;
 class CategoriasService {
-    constructor(categoriasRepository, validadorDadosCategoria, regraStatusCategoria) {
-        this.categoriasRepository = categoriasRepository;
+    constructor(leituraCategoriasRepository, escritaCategoriasRepository, statusCategoriasRepository, validadorDadosCategoria, regraStatusCategoria) {
+        this.leituraCategoriasRepository = leituraCategoriasRepository;
+        this.escritaCategoriasRepository = escritaCategoriasRepository;
+        this.statusCategoriasRepository = statusCategoriasRepository;
         this.validadorDadosCategoria = validadorDadosCategoria;
         this.regraStatusCategoria = regraStatusCategoria;
     }
     async criar(data) {
         const dadosCategoria = this.validadorDadosCategoria.validar(data);
-        const categoriaExistente = await this.categoriasRepository.buscarCategoriaPorSlug(dadosCategoria.slug);
+        const categoriaExistente = await this.leituraCategoriasRepository.buscarCategoriaPorSlug(dadosCategoria.slug);
         if (categoriaExistente) {
             throw new Error("Já existe uma categoria com esse nome.");
         }
-        return this.categoriasRepository.criarCategoria(dadosCategoria);
+        return this.escritaCategoriasRepository.criarCategoria(dadosCategoria);
     }
     async listar() {
-        return this.categoriasRepository.listarCategoriasAtivas();
+        return this.leituraCategoriasRepository.listarCategoriasAtivas();
     }
     async buscarPorSlug(data) {
-        const categoria = await this.categoriasRepository.buscarCategoriaPorSlug(data.slug);
+        const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorSlug(data.slug);
         if (!categoria) {
             throw new Error("Categoria não encontrada.");
         }
         return categoria;
     }
     async buscarPorId(data) {
-        const categoria = await this.categoriasRepository.buscarCategoriaPorId(data.id);
+        const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(data.id);
         if (!categoria) {
             throw new Error("Categoria não encontrada.");
         }
         return categoria;
     }
     async atualizar(data) {
-        const categoria = await this.categoriasRepository.buscarCategoriaPorId(data.id);
+        const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(data.id);
         if (!categoria) {
             throw new Error("Categoria não encontrada.");
         }
         const dadosCategoria = this.validadorDadosCategoria.validar(data);
-        const categoriaComMesmoSlug = await this.categoriasRepository.buscarCategoriaPorSlug(dadosCategoria.slug);
+        const categoriaComMesmoSlug = await this.leituraCategoriasRepository.buscarCategoriaPorSlug(dadosCategoria.slug);
         if (categoriaComMesmoSlug && categoriaComMesmoSlug.id !== data.id) {
             throw new Error("Já existe outra categoria com esse nome.");
         }
-        return this.categoriasRepository.atualizarCategoria(data.id, dadosCategoria);
+        return this.escritaCategoriasRepository.atualizarCategoria(data.id, dadosCategoria);
     }
     async desativar(data) {
-        const categoria = await this.categoriasRepository.buscarCategoriaPorId(data.id);
+        const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(data.id);
         if (!categoria) {
             throw new Error("Categoria não encontrada.");
         }
         this.regraStatusCategoria.validarDesativacao(categoria);
-        return this.categoriasRepository.atualizarStatusCategoria(data.id, false);
+        return this.statusCategoriasRepository.atualizarStatusCategoria(data.id, false);
     }
     async ativar(data) {
-        const categoria = await this.categoriasRepository.buscarCategoriaPorId(data.id);
+        const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(data.id);
         if (!categoria) {
             throw new Error("Categoria não encontrada.");
         }
         this.regraStatusCategoria.validarAtivacao(categoria);
-        return this.categoriasRepository.atualizarStatusCategoria(data.id, true);
+        return this.statusCategoriasRepository.atualizarStatusCategoria(data.id, true);
     }
     async remover(data) {
-        const categoria = await this.categoriasRepository.buscarCategoriaPorId(data.id);
+        const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(data.id);
         if (!categoria) {
             throw new Error("Categoria não encontrada.");
         }
-        const categoriaRemovida = await this.categoriasRepository.atualizarStatusCategoria(data.id, false);
+        const categoriaRemovida = await this.statusCategoriasRepository.atualizarStatusCategoria(data.id, false);
         return {
             message: "Categoria removida com sucesso.",
             categoria: categoriaRemovida,
@@ -128,4 +130,4 @@ exports.CategoriasService = CategoriasService;
 const geradorSlugCategoria = new GeradorSlugCategoriaPadrao();
 const validadorDadosCategoria = new ValidadorDadosCategoriaPadrao(geradorSlugCategoria);
 const regraStatusCategoria = new RegraStatusCategoriaPadrao();
-exports.categoriasService = new CategoriasService(categorias_repository_1.categoriasRepository, validadorDadosCategoria, regraStatusCategoria);
+exports.categoriasService = new CategoriasService(categorias_repository_1.categoriasRepository, categorias_repository_1.categoriasRepository, categorias_repository_1.categoriasRepository, validadorDadosCategoria, regraStatusCategoria);

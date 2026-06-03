@@ -84,15 +84,18 @@ class ValidadorDadosProdutoPadrao {
 }
 exports.ValidadorDadosProdutoPadrao = ValidadorDadosProdutoPadrao;
 class ProdutosService {
-    constructor(produtosRepository, validadorDadosProduto) {
-        this.produtosRepository = produtosRepository;
+    constructor(leituraProdutosRepository, escritaProdutosRepository, statusProdutosRepository, categoriasProdutoRepository, validadorDadosProduto) {
+        this.leituraProdutosRepository = leituraProdutosRepository;
+        this.escritaProdutosRepository = escritaProdutosRepository;
+        this.statusProdutosRepository = statusProdutosRepository;
+        this.categoriasProdutoRepository = categoriasProdutoRepository;
         this.validadorDadosProduto = validadorDadosProduto;
     }
     async validarCategoria(categoriaId, mensagemInativa) {
         if (!categoriaId) {
             throw new Error("A categoria do produto é obrigatória.");
         }
-        const categoria = await this.produtosRepository.buscarCategoriaPorId(String(categoriaId));
+        const categoria = await this.categoriasProdutoRepository.buscarCategoriaPorId(String(categoriaId));
         if (!categoria) {
             throw new Error("Categoria não encontrada.");
         }
@@ -104,11 +107,11 @@ class ProdutosService {
     async criar(data) {
         const dadosProduto = this.validadorDadosProduto.validar(data);
         const categoriaId = await this.validarCategoria(data.categoriaId, "Não é possível criar produto em uma categoria inativa.");
-        const produtoExistente = await this.produtosRepository.buscarProdutoSimplesPorSlug(dadosProduto.slug);
+        const produtoExistente = await this.leituraProdutosRepository.buscarProdutoSimplesPorSlug(dadosProduto.slug);
         if (produtoExistente) {
             throw new Error("Já existe um produto com esse nome.");
         }
-        return this.produtosRepository.criarProduto({
+        return this.escritaProdutosRepository.criarProduto({
             nome: dadosProduto.nome,
             slug: dadosProduto.slug,
             descricao: dadosProduto.descricao,
@@ -121,34 +124,34 @@ class ProdutosService {
         });
     }
     async listar() {
-        return this.produtosRepository.listarProdutosAtivos();
+        return this.leituraProdutosRepository.listarProdutosAtivos();
     }
     async buscarPorSlug(data) {
-        const produto = await this.produtosRepository.buscarProdutoPorSlug(data.slug);
+        const produto = await this.leituraProdutosRepository.buscarProdutoPorSlug(data.slug);
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
         return produto;
     }
     async buscarPorId(data) {
-        const produto = await this.produtosRepository.buscarProdutoPorId(data.id);
+        const produto = await this.leituraProdutosRepository.buscarProdutoPorId(data.id);
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
         return produto;
     }
     async atualizar(data) {
-        const produto = await this.produtosRepository.buscarProdutoSimplesPorId(data.id);
+        const produto = await this.leituraProdutosRepository.buscarProdutoSimplesPorId(data.id);
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
         const dadosProduto = this.validadorDadosProduto.validar(data);
         const categoriaId = await this.validarCategoria(data.categoriaId, "Não é possível vincular produto a uma categoria inativa.");
-        const produtoComMesmoSlug = await this.produtosRepository.buscarProdutoSimplesPorSlug(dadosProduto.slug);
+        const produtoComMesmoSlug = await this.leituraProdutosRepository.buscarProdutoSimplesPorSlug(dadosProduto.slug);
         if (produtoComMesmoSlug && produtoComMesmoSlug.id !== data.id) {
             throw new Error("Já existe outro produto com esse nome.");
         }
-        return this.produtosRepository.atualizarProduto(data.id, {
+        return this.escritaProdutosRepository.atualizarProduto(data.id, {
             nome: dadosProduto.nome,
             slug: dadosProduto.slug,
             descricao: dadosProduto.descricao,
@@ -161,31 +164,31 @@ class ProdutosService {
         });
     }
     async desativar(data) {
-        const produto = await this.produtosRepository.buscarProdutoSimplesPorId(data.id);
+        const produto = await this.leituraProdutosRepository.buscarProdutoSimplesPorId(data.id);
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
         if (!produto.ativo) {
             throw new Error("Produto já está desativado.");
         }
-        return this.produtosRepository.atualizarStatusProduto(data.id, false);
+        return this.statusProdutosRepository.atualizarStatusProduto(data.id, false);
     }
     async ativar(data) {
-        const produto = await this.produtosRepository.buscarProdutoSimplesPorId(data.id);
+        const produto = await this.leituraProdutosRepository.buscarProdutoSimplesPorId(data.id);
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
         if (produto.ativo) {
             throw new Error("Produto já está ativo.");
         }
-        return this.produtosRepository.atualizarStatusProduto(data.id, true);
+        return this.statusProdutosRepository.atualizarStatusProduto(data.id, true);
     }
     async remover(data) {
-        const produto = await this.produtosRepository.buscarProdutoSimplesPorId(data.id);
+        const produto = await this.leituraProdutosRepository.buscarProdutoSimplesPorId(data.id);
         if (!produto) {
             throw new Error("Produto não encontrado.");
         }
-        const produtoRemovido = await this.produtosRepository.atualizarStatusProduto(data.id, false);
+        const produtoRemovido = await this.statusProdutosRepository.atualizarStatusProduto(data.id, false);
         return {
             message: "Produto removido com sucesso.",
             produto: produtoRemovido,
@@ -196,4 +199,4 @@ exports.ProdutosService = ProdutosService;
 const geradorSlugProduto = new GeradorSlugProdutoPadrao();
 const calculadoraPrecoProduto = new CalculadoraPrecoProdutoComDesconto();
 const validadorDadosProduto = new ValidadorDadosProdutoPadrao(geradorSlugProduto, calculadoraPrecoProduto);
-exports.produtosService = new ProdutosService(produtos_repository_1.produtosRepository, validadorDadosProduto);
+exports.produtosService = new ProdutosService(produtos_repository_1.produtosRepository, produtos_repository_1.produtosRepository, produtos_repository_1.produtosRepository, produtos_repository_1.produtosRepository, validadorDadosProduto);

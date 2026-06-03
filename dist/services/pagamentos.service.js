@@ -73,13 +73,13 @@ class RegraReembolsoPagamentoPadrao {
 }
 exports.RegraReembolsoPagamentoPadrao = RegraReembolsoPagamentoPadrao;
 class ProcessadorEstoquePagamentoPadrao {
-    constructor(pagamentosRepository) {
-        this.pagamentosRepository = pagamentosRepository;
+    constructor(estoquePagamentoRepository) {
+        this.estoquePagamentoRepository = estoquePagamentoRepository;
     }
     async baixarEstoque(itens, pedidoId, tx) {
         for (const item of itens) {
-            await this.pagamentosRepository.atualizarEstoqueVariacao(item.variacaoId, item.variacao.estoque - item.quantidade, tx);
-            await this.pagamentosRepository.criarMovimentacaoEstoque({
+            await this.estoquePagamentoRepository.atualizarEstoqueVariacao(item.variacaoId, item.variacao.estoque - item.quantidade, tx);
+            await this.estoquePagamentoRepository.criarMovimentacaoEstoque({
                 variacaoId: item.variacaoId,
                 tipo: enums_1.TipoMovimentacaoEstoque.VENDA,
                 quantidade: item.quantidade,
@@ -89,8 +89,8 @@ class ProcessadorEstoquePagamentoPadrao {
     }
     async devolverEstoque(itens, pedidoId, tx) {
         for (const item of itens) {
-            await this.pagamentosRepository.atualizarEstoqueVariacao(item.variacaoId, item.variacao.estoque + item.quantidade, tx);
-            await this.pagamentosRepository.criarMovimentacaoEstoque({
+            await this.estoquePagamentoRepository.atualizarEstoqueVariacao(item.variacaoId, item.variacao.estoque + item.quantidade, tx);
+            await this.estoquePagamentoRepository.criarMovimentacaoEstoque({
                 variacaoId: item.variacaoId,
                 tipo: enums_1.TipoMovimentacaoEstoque.DEVOLUCAO_CANCELAMENTO,
                 quantidade: item.quantidade,
@@ -101,8 +101,12 @@ class ProcessadorEstoquePagamentoPadrao {
 }
 exports.ProcessadorEstoquePagamentoPadrao = ProcessadorEstoquePagamentoPadrao;
 class PagamentosService {
-    constructor(pagamentosRepository, validadorMetodoPagamento, regraAprovacaoPagamento, regraRecusaPagamento, regraCancelamentoPagamento, regraReembolsoPagamento, processadorEstoquePagamento) {
-        this.pagamentosRepository = pagamentosRepository;
+    constructor(transacaoPagamentosRepository, consultaPedidoPagamentoRepository, leituraPagamentosRepository, escritaPagamentosRepository, statusPedidoPagamentoRepository, validadorMetodoPagamento, regraAprovacaoPagamento, regraRecusaPagamento, regraCancelamentoPagamento, regraReembolsoPagamento, processadorEstoquePagamento) {
+        this.transacaoPagamentosRepository = transacaoPagamentosRepository;
+        this.consultaPedidoPagamentoRepository = consultaPedidoPagamentoRepository;
+        this.leituraPagamentosRepository = leituraPagamentosRepository;
+        this.escritaPagamentosRepository = escritaPagamentosRepository;
+        this.statusPedidoPagamentoRepository = statusPedidoPagamentoRepository;
         this.validadorMetodoPagamento = validadorMetodoPagamento;
         this.regraAprovacaoPagamento = regraAprovacaoPagamento;
         this.regraRecusaPagamento = regraRecusaPagamento;
@@ -118,7 +122,7 @@ class PagamentosService {
             throw new Error("O pedido é obrigatório.");
         }
         const pedidoId = String(data.pedidoId);
-        const pedido = await this.pagamentosRepository.buscarPedidoPorId(pedidoId);
+        const pedido = await this.consultaPedidoPagamentoRepository.buscarPedidoPorId(pedidoId);
         if (!pedido) {
             throw new Error("Pedido não encontrado.");
         }
@@ -132,31 +136,31 @@ class PagamentosService {
             throw new Error("Este pedido já possui um pagamento vinculado.");
         }
         const metodo = this.validarMetodoPagamento(data.metodo);
-        return this.pagamentosRepository.criarPagamento({
+        return this.escritaPagamentosRepository.criarPagamento({
             pedidoId,
             metodo,
             valor: pedido.total,
         });
     }
     async listar() {
-        return this.pagamentosRepository.listarPagamentos();
+        return this.leituraPagamentosRepository.listarPagamentos();
     }
     async buscarPorId(data) {
-        const pagamento = await this.pagamentosRepository.buscarPagamentoPorId(data.id);
+        const pagamento = await this.leituraPagamentosRepository.buscarPagamentoPorId(data.id);
         if (!pagamento) {
             throw new Error("Pagamento não encontrado.");
         }
         return pagamento;
     }
     async aprovar(data) {
-        const pagamento = await this.pagamentosRepository.buscarPagamentoParaAprovacao(data.id);
+        const pagamento = await this.leituraPagamentosRepository.buscarPagamentoParaAprovacao(data.id);
         if (!pagamento) {
             throw new Error("Pagamento não encontrado.");
         }
         this.regraAprovacaoPagamento.validar(pagamento);
-        return this.pagamentosRepository.executarTransacao(async (tx) => {
-            const pagamentoAprovado = await this.pagamentosRepository.marcarPagamentoComoAprovado(data.id, tx);
-            const pedidoAtualizado = await this.pagamentosRepository.atualizarStatusPedido(pagamento.pedidoId, enums_1.StatusPedido.PAGO, tx);
+        return this.transacaoPagamentosRepository.executarTransacao(async (tx) => {
+            const pagamentoAprovado = await this.escritaPagamentosRepository.marcarPagamentoComoAprovado(data.id, tx);
+            const pedidoAtualizado = await this.statusPedidoPagamentoRepository.atualizarStatusPedido(pagamento.pedidoId, enums_1.StatusPedido.PAGO, tx);
             await this.processadorEstoquePagamento.baixarEstoque(pagamento.pedido.itens, pagamento.pedidoId, tx);
             return {
                 pagamento: pagamentoAprovado,
@@ -165,30 +169,30 @@ class PagamentosService {
         });
     }
     async recusar(data) {
-        const pagamento = await this.pagamentosRepository.buscarPagamentoComPedido(data.id);
+        const pagamento = await this.leituraPagamentosRepository.buscarPagamentoComPedido(data.id);
         if (!pagamento) {
             throw new Error("Pagamento não encontrado.");
         }
         this.regraRecusaPagamento.validar(pagamento);
-        return this.pagamentosRepository.atualizarStatusPagamento(data.id, enums_1.StatusPagamento.RECUSADO);
+        return this.escritaPagamentosRepository.atualizarStatusPagamento(data.id, enums_1.StatusPagamento.RECUSADO);
     }
     async cancelar(data) {
-        const pagamento = await this.pagamentosRepository.buscarPagamentoSimplesPorId(data.id);
+        const pagamento = await this.leituraPagamentosRepository.buscarPagamentoSimplesPorId(data.id);
         if (!pagamento) {
             throw new Error("Pagamento não encontrado.");
         }
         this.regraCancelamentoPagamento.validar(pagamento);
-        return this.pagamentosRepository.atualizarStatusPagamento(data.id, enums_1.StatusPagamento.CANCELADO);
+        return this.escritaPagamentosRepository.atualizarStatusPagamento(data.id, enums_1.StatusPagamento.CANCELADO);
     }
     async reembolsar(data) {
-        const pagamento = await this.pagamentosRepository.buscarPagamentoParaReembolso(data.id);
+        const pagamento = await this.leituraPagamentosRepository.buscarPagamentoParaReembolso(data.id);
         if (!pagamento) {
             throw new Error("Pagamento não encontrado.");
         }
         this.regraReembolsoPagamento.validar(pagamento);
-        return this.pagamentosRepository.executarTransacao(async (tx) => {
-            const pagamentoReembolsado = await this.pagamentosRepository.marcarPagamentoComoReembolsado(data.id, tx);
-            const pedidoReembolsado = await this.pagamentosRepository.atualizarStatusPedido(pagamento.pedidoId, enums_1.StatusPedido.REEMBOLSADO, tx);
+        return this.transacaoPagamentosRepository.executarTransacao(async (tx) => {
+            const pagamentoReembolsado = await this.escritaPagamentosRepository.marcarPagamentoComoReembolsado(data.id, tx);
+            const pedidoReembolsado = await this.statusPedidoPagamentoRepository.atualizarStatusPedido(pagamento.pedidoId, enums_1.StatusPedido.REEMBOLSADO, tx);
             await this.processadorEstoquePagamento.devolverEstoque(pagamento.pedido.itens, pagamento.pedidoId, tx);
             return {
                 pagamento: pagamentoReembolsado,
@@ -204,4 +208,4 @@ const regraRecusaPagamento = new RegraRecusaPagamentoPadrao();
 const regraCancelamentoPagamento = new RegraCancelamentoPagamentoPadrao();
 const regraReembolsoPagamento = new RegraReembolsoPagamentoPadrao();
 const processadorEstoquePagamento = new ProcessadorEstoquePagamentoPadrao(pagamentos_repository_1.pagamentosRepository);
-exports.pagamentosService = new PagamentosService(pagamentos_repository_1.pagamentosRepository, validadorMetodoPagamento, regraAprovacaoPagamento, regraRecusaPagamento, regraCancelamentoPagamento, regraReembolsoPagamento, processadorEstoquePagamento);
+exports.pagamentosService = new PagamentosService(pagamentos_repository_1.pagamentosRepository, pagamentos_repository_1.pagamentosRepository, pagamentos_repository_1.pagamentosRepository, pagamentos_repository_1.pagamentosRepository, pagamentos_repository_1.pagamentosRepository, validadorMetodoPagamento, regraAprovacaoPagamento, regraRecusaPagamento, regraCancelamentoPagamento, regraReembolsoPagamento, processadorEstoquePagamento);

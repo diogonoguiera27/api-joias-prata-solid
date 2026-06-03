@@ -77,8 +77,12 @@ class CalculadorasMovimentacaoEstoquePadrao {
 }
 exports.CalculadorasMovimentacaoEstoquePadrao = CalculadorasMovimentacaoEstoquePadrao;
 class MovimentacoesEstoqueService {
-    constructor(movimentacoesEstoqueRepository, validadorTipoMovimentacaoEstoque, validadorQuantidadeMovimentacaoEstoque, calculadorasMovimentacaoEstoque) {
-        this.movimentacoesEstoqueRepository = movimentacoesEstoqueRepository;
+    constructor(transacaoMovimentacoesEstoqueRepository, consultaVariacaoMovimentacaoEstoqueRepository, escritaMovimentacoesEstoqueRepository, estoqueVariacaoMovimentacaoRepository, leituraMovimentacoesEstoqueRepository, validadorTipoMovimentacaoEstoque, validadorQuantidadeMovimentacaoEstoque, calculadorasMovimentacaoEstoque) {
+        this.transacaoMovimentacoesEstoqueRepository = transacaoMovimentacoesEstoqueRepository;
+        this.consultaVariacaoMovimentacaoEstoqueRepository = consultaVariacaoMovimentacaoEstoqueRepository;
+        this.escritaMovimentacoesEstoqueRepository = escritaMovimentacoesEstoqueRepository;
+        this.estoqueVariacaoMovimentacaoRepository = estoqueVariacaoMovimentacaoRepository;
+        this.leituraMovimentacoesEstoqueRepository = leituraMovimentacoesEstoqueRepository;
         this.validadorTipoMovimentacaoEstoque = validadorTipoMovimentacaoEstoque;
         this.validadorQuantidadeMovimentacaoEstoque = validadorQuantidadeMovimentacaoEstoque;
         this.calculadorasMovimentacaoEstoque = calculadorasMovimentacaoEstoque;
@@ -88,7 +92,7 @@ class MovimentacoesEstoqueService {
             throw new Error("A variação do produto é obrigatória.");
         }
         const variacaoId = String(data.variacaoId);
-        const variacao = await this.movimentacoesEstoqueRepository.buscarVariacaoPorId(variacaoId);
+        const variacao = await this.consultaVariacaoMovimentacaoEstoqueRepository.buscarVariacaoPorId(variacaoId);
         if (!variacao) {
             throw new Error("Variação de produto não encontrada.");
         }
@@ -102,14 +106,14 @@ class MovimentacoesEstoqueService {
         if (novoEstoque < 0) {
             throw new Error("A movimentação deixaria o estoque negativo.");
         }
-        return this.movimentacoesEstoqueRepository.executarTransacao(async (tx) => {
-            const movimentacao = await this.movimentacoesEstoqueRepository.criarMovimentacaoEstoque({
+        return this.transacaoMovimentacoesEstoqueRepository.executarTransacao(async (tx) => {
+            const movimentacao = await this.escritaMovimentacoesEstoqueRepository.criarMovimentacaoEstoque({
                 variacaoId,
                 tipo,
                 quantidade,
                 motivo: data.motivo,
             }, tx);
-            const variacao = await this.movimentacoesEstoqueRepository.atualizarEstoqueVariacao(variacaoId, novoEstoque, tx);
+            const variacao = await this.estoqueVariacaoMovimentacaoRepository.atualizarEstoqueVariacao(variacaoId, novoEstoque, tx);
             return {
                 movimentacao,
                 variacao,
@@ -117,17 +121,17 @@ class MovimentacoesEstoqueService {
         });
     }
     async listar() {
-        return this.movimentacoesEstoqueRepository.listarMovimentacoes();
+        return this.leituraMovimentacoesEstoqueRepository.listarMovimentacoes();
     }
     async listarPorVariacao(data) {
-        const variacao = await this.movimentacoesEstoqueRepository.buscarVariacaoPorId(data.variacaoId);
+        const variacao = await this.consultaVariacaoMovimentacaoEstoqueRepository.buscarVariacaoPorId(data.variacaoId);
         if (!variacao) {
             throw new Error("Variação de produto não encontrada.");
         }
-        return this.movimentacoesEstoqueRepository.listarMovimentacoesPorVariacao(data.variacaoId);
+        return this.leituraMovimentacoesEstoqueRepository.listarMovimentacoesPorVariacao(data.variacaoId);
     }
     async buscarPorId(data) {
-        const movimentacao = await this.movimentacoesEstoqueRepository.buscarMovimentacaoPorId(data.id);
+        const movimentacao = await this.leituraMovimentacoesEstoqueRepository.buscarMovimentacaoPorId(data.id);
         if (!movimentacao) {
             throw new Error("Movimentação de estoque não encontrada.");
         }
@@ -138,4 +142,4 @@ exports.MovimentacoesEstoqueService = MovimentacoesEstoqueService;
 const validadorTipoMovimentacaoEstoque = new ValidadorTipoMovimentacaoEstoquePadrao();
 const validadorQuantidadeMovimentacaoEstoque = new ValidadorQuantidadeMovimentacaoEstoquePadrao();
 const calculadorasMovimentacaoEstoque = new CalculadorasMovimentacaoEstoquePadrao();
-exports.movimentacoesEstoqueService = new MovimentacoesEstoqueService(movimentacoes_estoque_repository_1.movimentacoesEstoqueRepository, validadorTipoMovimentacaoEstoque, validadorQuantidadeMovimentacaoEstoque, calculadorasMovimentacaoEstoque);
+exports.movimentacoesEstoqueService = new MovimentacoesEstoqueService(movimentacoes_estoque_repository_1.movimentacoesEstoqueRepository, movimentacoes_estoque_repository_1.movimentacoesEstoqueRepository, movimentacoes_estoque_repository_1.movimentacoesEstoqueRepository, movimentacoes_estoque_repository_1.movimentacoesEstoqueRepository, movimentacoes_estoque_repository_1.movimentacoesEstoqueRepository, validadorTipoMovimentacaoEstoque, validadorQuantidadeMovimentacaoEstoque, calculadorasMovimentacaoEstoque);

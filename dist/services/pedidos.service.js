@@ -115,8 +115,12 @@ class RegraCancelamentoPedidoPadrao {
 }
 exports.RegraCancelamentoPedidoPadrao = RegraCancelamentoPedidoPadrao;
 class PedidosService {
-    constructor(pedidosRepository, calculadoraTotaisPedido, validadorStatusPedido, validadorItensPedido, regraAtualizacaoStatusPedido, regraCancelamentoPedido, regraCriacaoPedido, montadorDadosPedido) {
-        this.pedidosRepository = pedidosRepository;
+    constructor(transacaoPedidosRepository, consultaCriacaoPedidosRepository, escritaPedidosRepository, leituraPedidosRepository, statusPedidosRepository, calculadoraTotaisPedido, validadorStatusPedido, validadorItensPedido, regraAtualizacaoStatusPedido, regraCancelamentoPedido, regraCriacaoPedido, montadorDadosPedido) {
+        this.transacaoPedidosRepository = transacaoPedidosRepository;
+        this.consultaCriacaoPedidosRepository = consultaCriacaoPedidosRepository;
+        this.escritaPedidosRepository = escritaPedidosRepository;
+        this.leituraPedidosRepository = leituraPedidosRepository;
+        this.statusPedidosRepository = statusPedidosRepository;
         this.calculadoraTotaisPedido = calculadoraTotaisPedido;
         this.validadorStatusPedido = validadorStatusPedido;
         this.validadorItensPedido = validadorItensPedido;
@@ -129,14 +133,14 @@ class PedidosService {
         if (!data.carrinhoId) {
             throw new Error("O carrinho é obrigatório para criar o pedido.");
         }
-        const carrinho = await this.pedidosRepository.buscarCarrinhoPorId(String(data.carrinhoId));
+        const carrinho = await this.consultaCriacaoPedidosRepository.buscarCarrinhoPorId(String(data.carrinhoId));
         if (!carrinho) {
             throw new Error("Carrinho não encontrado.");
         }
         this.regraCriacaoPedido.validarCarrinho(carrinho);
         let clienteId = carrinho.clienteId;
         if (data.clienteId) {
-            const cliente = await this.pedidosRepository.buscarClientePorId(String(data.clienteId));
+            const cliente = await this.consultaCriacaoPedidosRepository.buscarClientePorId(String(data.clienteId));
             if (!cliente) {
                 throw new Error("Cliente informado não encontrado.");
             }
@@ -145,9 +149,9 @@ class PedidosService {
         this.validadorItensPedido.validar(carrinho.itens);
         const totais = this.calculadoraTotaisPedido.calcular(carrinho.itens);
         const dadosPedido = this.montadorDadosPedido.montar(carrinho, clienteId, totais);
-        return this.pedidosRepository.executarTransacao(async (tx) => {
-            const pedido = await this.pedidosRepository.criarPedido(dadosPedido, tx);
-            const carrinhoAtualizado = await this.pedidosRepository.atualizarCarrinhoAposCriacaoPedido(carrinho.id, {
+        return this.transacaoPedidosRepository.executarTransacao(async (tx) => {
+            const pedido = await this.escritaPedidosRepository.criarPedido(dadosPedido, tx);
+            const carrinhoAtualizado = await this.escritaPedidosRepository.atualizarCarrinhoAposCriacaoPedido(carrinho.id, {
                 status: enums_1.StatusCarrinho.CONVERTIDO_EM_PEDIDO,
                 clienteId,
             }, tx);
@@ -158,31 +162,31 @@ class PedidosService {
         });
     }
     async listar() {
-        return this.pedidosRepository.listarPedidos();
+        return this.leituraPedidosRepository.listarPedidos();
     }
     async buscarPorId(data) {
-        const pedido = await this.pedidosRepository.buscarPedidoPorId(data.id);
+        const pedido = await this.leituraPedidosRepository.buscarPedidoPorId(data.id);
         if (!pedido) {
             throw new Error("Pedido não encontrado.");
         }
         return pedido;
     }
     async atualizarStatus(data) {
-        const pedido = await this.pedidosRepository.buscarPedidoComPagamentoPorId(data.id);
+        const pedido = await this.leituraPedidosRepository.buscarPedidoComPagamentoPorId(data.id);
         if (!pedido) {
             throw new Error("Pedido não encontrado.");
         }
         const status = this.validadorStatusPedido.validar(data.status);
         this.regraAtualizacaoStatusPedido.validar(pedido, status);
-        return this.pedidosRepository.atualizarStatusPedido(data.id, status);
+        return this.statusPedidosRepository.atualizarStatusPedido(data.id, status);
     }
     async cancelar(data) {
-        const pedido = await this.pedidosRepository.buscarPedidoSimplesPorId(data.id);
+        const pedido = await this.leituraPedidosRepository.buscarPedidoSimplesPorId(data.id);
         if (!pedido) {
             throw new Error("Pedido não encontrado.");
         }
         this.regraCancelamentoPedido.validar(pedido);
-        return this.pedidosRepository.atualizarStatusPedido(data.id, enums_1.StatusPedido.CANCELADO);
+        return this.statusPedidosRepository.atualizarStatusPedido(data.id, enums_1.StatusPedido.CANCELADO);
     }
 }
 exports.PedidosService = PedidosService;
@@ -193,4 +197,4 @@ const regraAtualizacaoStatusPedido = new RegraAtualizacaoStatusPedidoPadrao();
 const regraCancelamentoPedido = new RegraCancelamentoPedidoPadrao();
 const regraCriacaoPedido = new RegraCriacaoPedidoPadrao();
 const montadorDadosPedido = new MontadorDadosPedidoPadrao();
-exports.pedidosService = new PedidosService(pedidos_repository_1.pedidosRepository, calculadoraTotaisPedido, validadorStatusPedido, validadorItensPedido, regraAtualizacaoStatusPedido, regraCancelamentoPedido, regraCriacaoPedido, montadorDadosPedido);
+exports.pedidosService = new PedidosService(pedidos_repository_1.pedidosRepository, pedidos_repository_1.pedidosRepository, pedidos_repository_1.pedidosRepository, pedidos_repository_1.pedidosRepository, pedidos_repository_1.pedidosRepository, calculadoraTotaisPedido, validadorStatusPedido, validadorItensPedido, regraAtualizacaoStatusPedido, regraCancelamentoPedido, regraCriacaoPedido, montadorDadosPedido);

@@ -20,20 +20,31 @@ interface CategoriaRepository {
   ativo: boolean;
 }
 
-export interface ICategoriasRepository {
+export interface IEscritaCategoriasRepository {
   criarCategoria(data: DadosCategoriaValidados): Promise<CategoriaRepository>;
-  listarCategoriasAtivas(): Promise<CategoriaRepository[]>;
-  buscarCategoriaPorId(id: string): Promise<CategoriaRepository | null>;
-  buscarCategoriaPorSlug(slug: string): Promise<CategoriaRepository | null>;
   atualizarCategoria(
     id: string,
     data: DadosCategoriaValidados
   ): Promise<CategoriaRepository>;
+}
+
+export interface ILeituraCategoriasRepository {
+  listarCategoriasAtivas(): Promise<CategoriaRepository[]>;
+  buscarCategoriaPorId(id: string): Promise<CategoriaRepository | null>;
+  buscarCategoriaPorSlug(slug: string): Promise<CategoriaRepository | null>;
+}
+
+export interface IStatusCategoriasRepository {
   atualizarStatusCategoria(
     id: string,
     ativo: boolean
   ): Promise<CategoriaRepository>;
 }
+
+export interface ICategoriasRepository
+  extends IEscritaCategoriasRepository,
+    ILeituraCategoriasRepository,
+    IStatusCategoriasRepository {}
 
 export interface IGeradorSlugCategoria {
   gerar(texto: string): string;
@@ -108,7 +119,9 @@ export class RegraStatusCategoriaPadrao implements IRegraStatusCategoria {
 
 export class CategoriasService {
   constructor(
-    private categoriasRepository: ICategoriasRepository,
+    private leituraCategoriasRepository: ILeituraCategoriasRepository,
+    private escritaCategoriasRepository: IEscritaCategoriasRepository,
+    private statusCategoriasRepository: IStatusCategoriasRepository,
     private validadorDadosCategoria: IValidadorDadosCategoria,
     private regraStatusCategoria: IRegraStatusCategoria
   ) {}
@@ -117,7 +130,7 @@ export class CategoriasService {
     const dadosCategoria = this.validadorDadosCategoria.validar(data);
 
     const categoriaExistente =
-      await this.categoriasRepository.buscarCategoriaPorSlug(
+      await this.leituraCategoriasRepository.buscarCategoriaPorSlug(
         dadosCategoria.slug
       );
 
@@ -125,17 +138,16 @@ export class CategoriasService {
       throw new Error("Já existe uma categoria com esse nome.");
     }
 
-    return this.categoriasRepository.criarCategoria(dadosCategoria);
+    return this.escritaCategoriasRepository.criarCategoria(dadosCategoria);
   }
 
   async listar() {
-    return this.categoriasRepository.listarCategoriasAtivas();
+    return this.leituraCategoriasRepository.listarCategoriasAtivas();
   }
 
   async buscarPorSlug(data: BuscarCategoriaPorSlugDTO) {
-    const categoria = await this.categoriasRepository.buscarCategoriaPorSlug(
-      data.slug
-    );
+    const categoria =
+      await this.leituraCategoriasRepository.buscarCategoriaPorSlug(data.slug);
 
     if (!categoria) {
       throw new Error("Categoria não encontrada.");
@@ -145,7 +157,7 @@ export class CategoriasService {
   }
 
   async buscarPorId(data: BuscarCategoriaPorIdDTO) {
-    const categoria = await this.categoriasRepository.buscarCategoriaPorId(
+    const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(
       data.id
     );
 
@@ -157,7 +169,7 @@ export class CategoriasService {
   }
 
   async atualizar(data: AtualizarCategoriaDTO) {
-    const categoria = await this.categoriasRepository.buscarCategoriaPorId(
+    const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(
       data.id
     );
 
@@ -168,7 +180,7 @@ export class CategoriasService {
     const dadosCategoria = this.validadorDadosCategoria.validar(data);
 
     const categoriaComMesmoSlug =
-      await this.categoriasRepository.buscarCategoriaPorSlug(
+      await this.leituraCategoriasRepository.buscarCategoriaPorSlug(
         dadosCategoria.slug
       );
 
@@ -176,14 +188,14 @@ export class CategoriasService {
       throw new Error("Já existe outra categoria com esse nome.");
     }
 
-    return this.categoriasRepository.atualizarCategoria(
+    return this.escritaCategoriasRepository.atualizarCategoria(
       data.id,
       dadosCategoria
     );
   }
 
   async desativar(data: DesativarCategoriaDTO) {
-    const categoria = await this.categoriasRepository.buscarCategoriaPorId(
+    const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(
       data.id
     );
 
@@ -193,11 +205,14 @@ export class CategoriasService {
 
     this.regraStatusCategoria.validarDesativacao(categoria);
 
-    return this.categoriasRepository.atualizarStatusCategoria(data.id, false);
+    return this.statusCategoriasRepository.atualizarStatusCategoria(
+      data.id,
+      false
+    );
   }
 
   async ativar(data: AtivarCategoriaDTO) {
-    const categoria = await this.categoriasRepository.buscarCategoriaPorId(
+    const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(
       data.id
     );
 
@@ -207,11 +222,14 @@ export class CategoriasService {
 
     this.regraStatusCategoria.validarAtivacao(categoria);
 
-    return this.categoriasRepository.atualizarStatusCategoria(data.id, true);
+    return this.statusCategoriasRepository.atualizarStatusCategoria(
+      data.id,
+      true
+    );
   }
 
   async remover(data: RemoverCategoriaDTO) {
-    const categoria = await this.categoriasRepository.buscarCategoriaPorId(
+    const categoria = await this.leituraCategoriasRepository.buscarCategoriaPorId(
       data.id
     );
 
@@ -220,7 +238,10 @@ export class CategoriasService {
     }
 
     const categoriaRemovida =
-      await this.categoriasRepository.atualizarStatusCategoria(data.id, false);
+      await this.statusCategoriasRepository.atualizarStatusCategoria(
+        data.id,
+        false
+      );
 
     return {
       message: "Categoria removida com sucesso.",
@@ -236,6 +257,8 @@ const validadorDadosCategoria = new ValidadorDadosCategoriaPadrao(
 const regraStatusCategoria = new RegraStatusCategoriaPadrao();
 
 export const categoriasService = new CategoriasService(
+  categoriasRepository,
+  categoriasRepository,
   categoriasRepository,
   validadorDadosCategoria,
   regraStatusCategoria

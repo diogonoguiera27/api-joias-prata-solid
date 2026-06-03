@@ -11,11 +11,17 @@ interface VariacaoMovimentacaoEstoqueRepository {
   estoque: number;
 }
 
-export interface IMovimentacoesEstoqueRepository {
+export interface ITransacaoMovimentacoesEstoqueRepository {
   executarTransacao<T>(operacao: (tx: any) => Promise<T>): Promise<T>;
+}
+
+export interface IConsultaVariacaoMovimentacaoEstoqueRepository {
   buscarVariacaoPorId(
     variacaoId: string
   ): Promise<VariacaoMovimentacaoEstoqueRepository | null>;
+}
+
+export interface IEscritaMovimentacoesEstoqueRepository {
   criarMovimentacaoEstoque(
     data: {
       variacaoId: string;
@@ -25,15 +31,28 @@ export interface IMovimentacoesEstoqueRepository {
     },
     tx?: any
   ): Promise<unknown>;
+}
+
+export interface IEstoqueVariacaoMovimentacaoRepository {
   atualizarEstoqueVariacao(
     variacaoId: string,
     novoEstoque: number,
     tx?: any
   ): Promise<unknown>;
+}
+
+export interface ILeituraMovimentacoesEstoqueRepository {
   listarMovimentacoes(): Promise<unknown[]>;
   listarMovimentacoesPorVariacao(variacaoId: string): Promise<unknown[]>;
   buscarMovimentacaoPorId(id: string): Promise<unknown | null>;
 }
+
+export interface IMovimentacoesEstoqueRepository
+  extends ITransacaoMovimentacoesEstoqueRepository,
+    IConsultaVariacaoMovimentacaoEstoqueRepository,
+    IEscritaMovimentacoesEstoqueRepository,
+    IEstoqueVariacaoMovimentacaoRepository,
+    ILeituraMovimentacoesEstoqueRepository {}
 
 export interface IValidadorTipoMovimentacaoEstoque {
   validar(tipo: unknown): TipoMovimentacaoEstoque;
@@ -146,7 +165,11 @@ export class CalculadorasMovimentacaoEstoquePadrao
 
 export class MovimentacoesEstoqueService {
   constructor(
-    private movimentacoesEstoqueRepository: IMovimentacoesEstoqueRepository,
+    private transacaoMovimentacoesEstoqueRepository: ITransacaoMovimentacoesEstoqueRepository,
+    private consultaVariacaoMovimentacaoEstoqueRepository: IConsultaVariacaoMovimentacaoEstoqueRepository,
+    private escritaMovimentacoesEstoqueRepository: IEscritaMovimentacoesEstoqueRepository,
+    private estoqueVariacaoMovimentacaoRepository: IEstoqueVariacaoMovimentacaoRepository,
+    private leituraMovimentacoesEstoqueRepository: ILeituraMovimentacoesEstoqueRepository,
     private validadorTipoMovimentacaoEstoque: IValidadorTipoMovimentacaoEstoque,
     private validadorQuantidadeMovimentacaoEstoque: IValidadorQuantidadeMovimentacaoEstoque,
     private calculadorasMovimentacaoEstoque: ICalculadorasMovimentacaoEstoque
@@ -159,7 +182,7 @@ export class MovimentacoesEstoqueService {
 
     const variacaoId = String(data.variacaoId);
     const variacao =
-      await this.movimentacoesEstoqueRepository.buscarVariacaoPorId(
+      await this.consultaVariacaoMovimentacaoEstoqueRepository.buscarVariacaoPorId(
         variacaoId
       );
 
@@ -187,9 +210,9 @@ export class MovimentacoesEstoqueService {
       throw new Error("A movimentação deixaria o estoque negativo.");
     }
 
-    return this.movimentacoesEstoqueRepository.executarTransacao(async (tx) => {
+    return this.transacaoMovimentacoesEstoqueRepository.executarTransacao(async (tx) => {
       const movimentacao =
-        await this.movimentacoesEstoqueRepository.criarMovimentacaoEstoque(
+        await this.escritaMovimentacoesEstoqueRepository.criarMovimentacaoEstoque(
           {
             variacaoId,
             tipo,
@@ -200,7 +223,7 @@ export class MovimentacoesEstoqueService {
         );
 
       const variacao =
-        await this.movimentacoesEstoqueRepository.atualizarEstoqueVariacao(
+        await this.estoqueVariacaoMovimentacaoRepository.atualizarEstoqueVariacao(
           variacaoId,
           novoEstoque,
           tx
@@ -214,12 +237,12 @@ export class MovimentacoesEstoqueService {
   }
 
   async listar() {
-    return this.movimentacoesEstoqueRepository.listarMovimentacoes();
+    return this.leituraMovimentacoesEstoqueRepository.listarMovimentacoes();
   }
 
   async listarPorVariacao(data: ListarMovimentacoesEstoquePorVariacaoDTO) {
     const variacao =
-      await this.movimentacoesEstoqueRepository.buscarVariacaoPorId(
+      await this.consultaVariacaoMovimentacaoEstoqueRepository.buscarVariacaoPorId(
         data.variacaoId
       );
 
@@ -227,14 +250,14 @@ export class MovimentacoesEstoqueService {
       throw new Error("Variação de produto não encontrada.");
     }
 
-    return this.movimentacoesEstoqueRepository.listarMovimentacoesPorVariacao(
+    return this.leituraMovimentacoesEstoqueRepository.listarMovimentacoesPorVariacao(
       data.variacaoId
     );
   }
 
   async buscarPorId(data: BuscarMovimentacaoEstoquePorIdDTO) {
     const movimentacao =
-      await this.movimentacoesEstoqueRepository.buscarMovimentacaoPorId(
+      await this.leituraMovimentacoesEstoqueRepository.buscarMovimentacaoPorId(
         data.id
       );
 
@@ -254,6 +277,10 @@ const calculadorasMovimentacaoEstoque =
   new CalculadorasMovimentacaoEstoquePadrao();
 
 export const movimentacoesEstoqueService = new MovimentacoesEstoqueService(
+  movimentacoesEstoqueRepository,
+  movimentacoesEstoqueRepository,
+  movimentacoesEstoqueRepository,
+  movimentacoesEstoqueRepository,
   movimentacoesEstoqueRepository,
   validadorTipoMovimentacaoEstoque,
   validadorQuantidadeMovimentacaoEstoque,
